@@ -1,12 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 
-const scheduleStart = new Date("2026-11-28T12:00:00+08:00");
-const scheduleEnd = new Date("2027-01-10T12:00:00+08:00");
-
-const shifts = [
+const fallbackShifts = [
   { id: "morning", label: "Day shift", time: "10:00 AM – 4:00 PM" },
   { id: "evening", label: "Evening shift", time: "3:00 PM – 9:00 PM" },
 ];
@@ -14,23 +10,15 @@ const shifts = [
 type Availability = {
   shiftId: string;
   date: string;
+  label: string;
+  startTime: string;
+  endTime: string;
   capacity: number;
   reserved: number;
 };
 
-function getDates(start: Date, end: Date) {
-  const dates: Date[] = [];
-  const current = new Date(start);
-
-  while (current <= end) {
-    dates.push(new Date(current));
-    current.setDate(current.getDate() + 1);
-  }
-
-  return dates;
-}
-
-const eventDates = getDates(scheduleStart, scheduleEnd);
+const fallbackStart = new Date("2026-11-28T12:00:00+08:00");
+const fallbackEnd = new Date("2027-01-10T12:00:00+08:00");
 
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("en-US", {
@@ -38,6 +26,23 @@ function formatDate(date: Date) {
     day: "numeric",
     timeZone: "Asia/Manila",
   }).format(date);
+}
+
+function formatTime12(value: string) {
+  const [hours, minutes] = value.slice(0, 5).split(":").map(Number);
+  const period = hours >= 12 ? "PM" : "AM";
+  const hour = hours % 12 || 12;
+  return `${hour}:${String(minutes).padStart(2, "0")} ${period}`;
+}
+
+function formatScheduleRange(start: Date, end: Date) {
+  const startLabel = formatDate(start);
+  const endLabel = formatDate(end);
+  const endYear = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    timeZone: "Asia/Manila",
+  }).format(end);
+  return `${startLabel} – ${endLabel}, ${endYear}`;
 }
 
 function dateKey(date: Date) {
@@ -57,9 +62,9 @@ function getCalendarDays(month: Date) {
 }
 
 export default function Home() {
-  const [selectedDate, setSelectedDate] = useState(eventDates[0]);
+  const [selectedDate, setSelectedDate] = useState(fallbackStart);
   const [calendarMonth, setCalendarMonth] = useState(new Date(2026, 10, 1, 12));
-  const [selectedShift, setSelectedShift] = useState(shifts[0].id);
+  const [selectedShift, setSelectedShift] = useState(fallbackShifts[0].id);
   const [submitted, setSubmitted] = useState(false);
   const [reference, setReference] = useState("");
   const [waitlisted, setWaitlisted] = useState(false);
@@ -73,23 +78,55 @@ export default function Home() {
         if (!response.ok) throw new Error("Unable to load availability.");
         const data = (await response.json()) as { shifts: Availability[] };
         setAvailability(data.shifts);
+        const dates = [...new Set(data.shifts.map((shift) => shift.date))].sort();
+        setSelectedDate((current) => dates.includes(dateKey(current)) || dates.length === 0
+          ? current
+          : new Date(`${dates[0]}T12:00:00+08:00`));
+        if (dates.length > 0) {
+          const firstDate = new Date(`${dates[0]}T12:00:00+08:00`);
+          setCalendarMonth(new Date(firstDate.getFullYear(), firstDate.getMonth(), 1, 12));
+        }
       })
       .catch(() => setError("Live availability is not connected yet. Please try again shortly."));
   }, []);
 
-  const selectedDateKey = dateKey(selectedDate);
+  const availableDateKeys = useMemo(
+    () => [...new Set(availability.map((item) => item.date))].sort(),
+    [availability],
+  );
+  const eventDates = useMemo(
+    () => availableDateKeys.map((value) => new Date(`${value}T12:00:00+08:00`)),
+    [availableDateKeys],
+  );
+  const scheduleStart = eventDates[0] ?? fallbackStart;
+  const scheduleEnd = eventDates[eventDates.length - 1] ?? fallbackEnd;
+  const activeSelectedDate = eventDates.length > 0 && !availableDateKeys.includes(dateKey(selectedDate))
+    ? eventDates[0]
+    : selectedDate;
+  const selectedDateAvailability = availability.filter((item) => item.date === dateKey(activeSelectedDate));
+  const displayedShifts = selectedDateAvailability.length > 0
+    ? selectedDateAvailability
+    : fallbackShifts.map((shift) => ({
+      shiftId: `${dateKey(activeSelectedDate)}-${shift.id === "morning" ? "day" : "evening"}`,
+      date: dateKey(activeSelectedDate),
+      label: shift.label,
+      startTime: shift.id === "morning" ? "10:00" : "15:00",
+      endTime: shift.id === "morning" ? "16:00" : "21:00",
+      capacity: 2,
+      reserved: 0,
+    }));
+  const selectedDateKey = dateKey(activeSelectedDate);
   const calendarDays = getCalendarDays(calendarMonth);
   const calendarMonthLabel = new Intl.DateTimeFormat("en-US", {
     month: "long",
     year: "numeric",
     timeZone: "Asia/Manila",
   }).format(calendarMonth);
-  const firstCalendarMonth = calendarMonth.getFullYear() === 2026 && calendarMonth.getMonth() === 10;
-  const lastCalendarMonth = calendarMonth.getFullYear() === 2027 && calendarMonth.getMonth() === 0;
+  const firstCalendarMonth = eventDates.length > 0 && calendarMonth.getTime() <= new Date(eventDates[0].getFullYear(), eventDates[0].getMonth(), 1, 12).getTime();
+  const lastCalendarMonth = eventDates.length > 0 && calendarMonth.getTime() >= new Date(eventDates[eventDates.length - 1].getFullYear(), eventDates[eventDates.length - 1].getMonth(), 1, 12).getTime();
   function getSpotsOpen(shiftId: string) {
-    const shiftSuffix = shiftId === "morning" ? "day" : "evening";
     const shiftAvailability = availability.find(
-      (item) => item.date === selectedDateKey && item.shiftId === `${selectedDateKey}-${shiftSuffix}`,
+      (item) => item.date === selectedDateKey && item.shiftId === shiftId,
     );
     return shiftAvailability
       ? Math.max(shiftAvailability.capacity - shiftAvailability.reserved, 0)
@@ -101,8 +138,8 @@ export default function Home() {
       new Intl.DateTimeFormat("en-US", {
         dateStyle: "full",
         timeZone: "Asia/Manila",
-      }).format(selectedDate),
-    [selectedDate],
+      }).format(activeSelectedDate),
+    [activeSelectedDate],
   );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -116,7 +153,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shiftId: `${selectedDateKey}-${selectedShift === "morning" ? "day" : "evening"}`,
+          shiftId: displayedShifts.find((shift) => shift.shiftId.endsWith(selectedShift === "morning" ? "-day" : "-evening"))?.shiftId,
           fullName: formData.get("name"),
           phone: formData.get("phone"),
           organization: formData.get("organization"),
@@ -144,38 +181,26 @@ export default function Home() {
     <main>
       <section className="hero">
         <div className="hero__glow" />
-        <nav className="shell nav">
-          <Link className="brand" href="/" aria-label="Light The World home">
-            <span className="brand__mark">✦</span>
-            <span>
-              <strong>Light The World</strong>
-              <small>Giving Machines</small>
-            </span>
-          </Link>
-          <Link className="nav__admin" href="/admin">
-            Admin sign in <span aria-hidden="true">↗</span>
-          </Link>
-        </nav>
-
         <div className="shell hero__content">
           <div className="hero__copy">
             <p className="eyebrow">Volunteer scheduling · Davao</p>
-            <h1>Give your time.<br /><em>Light the world.</em></h1>
+            <h1><em>Light the world.</em><br />One Act at a Time.</h1>
             <p className="hero__intro">
               Join us at the Light The World Giving Machines. Choose a date
               and shift that works for you, then submit your request for
               coordinator confirmation.
             </p>
             <div className="hero__details">
-              <span><b>Nov 28</b> – <b>Jan 10</b>, 2027</span>
+              <span>{formatScheduleRange(scheduleStart, scheduleEnd)}</span>
               <span className="dot" />
               <span>GMT+8 · Davao</span>
             </div>
           </div>
-          <div className="hero__art" aria-label="Logo placeholder">
-            <div className="hero__sun">✦</div>
-            <span>Logo space</span>
-            <small>Your event logo can go here</small>
+          <div className="hero__art" aria-label="Light The World logo">
+            <img
+              src="/images/ltwdavao-logo.jpg"
+              alt="Light The World Giving Machines"
+            />
           </div>
         </div>
       </section>
@@ -219,7 +244,9 @@ export default function Home() {
               {calendarDays.map((date, index) => {
                 if (!date) return <span className="calendar__empty" key={`empty-${index}`} />;
                 const key = dateKey(date);
-                const isAvailable = key >= dateKey(scheduleStart) && key <= dateKey(scheduleEnd);
+                const isAvailable = availableDateKeys.length > 0
+                  ? availableDateKeys.includes(key)
+                  : key >= dateKey(fallbackStart) && key <= dateKey(fallbackEnd);
                 const isSelected = key === selectedDateKey;
                 return (
                   <button
@@ -249,22 +276,23 @@ export default function Home() {
           </div>
 
           <div className="shift-list">
-            {shifts.map((shift) => {
-              const isSelected = selectedShift === shift.id;
+            {displayedShifts.map((shift) => {
+              const shiftType = shift.shiftId.endsWith("-day") ? "morning" : "evening";
+              const isSelected = selectedShift === shiftType;
               return (
                 <button
                   className={`shift-card${isSelected ? " shift-card--selected" : ""}`}
-                  key={shift.id}
-                  onClick={() => setSelectedShift(shift.id)}
+                  key={shift.shiftId}
+                  onClick={() => setSelectedShift(shiftType)}
                   type="button"
                   aria-pressed={isSelected}
                 >
                   <span className={`radio${isSelected ? " radio--selected" : ""}`} />
                   <span className="shift-card__copy">
                     <strong>{shift.label}</strong>
-                    <span>{shift.time}</span>
+                    <span>{formatTime12(shift.startTime)} – {formatTime12(shift.endTime)}</span>
                   </span>
-                  <span className="availability"><b>{getSpotsOpen(shift.id)}</b> spots open</span>
+                  <span className="availability"><b>{getSpotsOpen(shift.shiftId)}</b> spots open</span>
                 </button>
               );
             })}
@@ -315,7 +343,7 @@ export default function Home() {
               </label>
               <div className="form-summary">
                 <span>Your request</span>
-                <strong>{formatDate(selectedDate)} · {shifts.find((shift) => shift.id === selectedShift)?.time}</strong>
+                <strong>{formatDate(activeSelectedDate)} · {formatTime12(displayedShifts.find((shift) => shift.shiftId.endsWith(selectedShift === "morning" ? "-day" : "-evening"))?.startTime ?? "00:00")}–{formatTime12(displayedShifts.find((shift) => shift.shiftId.endsWith(selectedShift === "morning" ? "-day" : "-evening"))?.endTime ?? "00:00")}</strong>
               </div>
               {error && <p className="form-error" role="alert">{error}</p>}
               <button className="button" disabled={submitting} type="submit">{submitting ? "Saving request…" : "Submit booking request"} <span>→</span></button>
