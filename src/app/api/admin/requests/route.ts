@@ -1,0 +1,96 @@
+import { isAdminAuthenticated } from "@/lib/admin-auth";
+import {
+  deleteBookingRequest,
+  editBookingRequest,
+  getAdminRequests,
+  getAdminWaitlist,
+  updateBookingStatus,
+} from "@/lib/database";
+
+export async function GET() {
+  if (!(await isAdminAuthenticated())) {
+    return Response.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  try {
+    const [requests, waitlist] = await Promise.all([getAdminRequests(), getAdminWaitlist()]);
+    return Response.json({ requests, waitlist });
+  } catch (error) {
+    console.error("Unable to load admin requests", error);
+    return Response.json({ error: "Unable to load booking requests." }, { status: 503 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  if (!(await isAdminAuthenticated())) {
+    return Response.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  let body: {
+    reference?: unknown;
+    status?: unknown;
+    shiftId?: unknown;
+    fullName?: unknown;
+    phone?: unknown;
+    organization?: unknown;
+    leaderName?: unknown;
+    leaderPhone?: unknown;
+  };
+  try {
+    body = (await request.json()) as { reference?: unknown; status?: unknown };
+  } catch {
+    return Response.json({ error: "Invalid request." }, { status: 400 });
+  }
+
+  const reference = typeof body.reference === "string" ? body.reference.trim() : "";
+  const status = body.status === "confirmed" || body.status === "rejected" ? body.status : undefined;
+  const shiftId = typeof body.shiftId === "string" ? body.shiftId.trim() : "";
+  const editFields = {
+    fullName: typeof body.fullName === "string" ? body.fullName.trim() : "",
+    phone: typeof body.phone === "string" ? body.phone.trim() : "",
+    organization: typeof body.organization === "string" ? body.organization.trim() : "",
+    leaderName: typeof body.leaderName === "string" ? body.leaderName.trim() : "",
+    leaderPhone: typeof body.leaderPhone === "string" ? body.leaderPhone.trim() : "",
+  };
+  if (!reference || (!status && (!shiftId || Object.values(editFields).every((value) => !value)))) {
+    return Response.json({ error: "A reference and an update are required." }, { status: 400 });
+  }
+
+  try {
+    if (status) {
+      await updateBookingStatus(reference, status);
+    } else {
+      if (!shiftId || !editFields.fullName || !editFields.phone || !editFields.organization || !editFields.leaderName) {
+        return Response.json({ error: "Complete all required booking fields." }, { status: 400 });
+      }
+      await editBookingRequest(reference, { ...editFields, shiftId });
+    }
+    return Response.json({ updated: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("already full") || message.includes("already has a request")) {
+      return Response.json({ error: message }, { status: 409 });
+    }
+    console.error("Unable to update booking request", error);
+    return Response.json({ error: "Unable to update that request." }, { status: 503 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  if (!(await isAdminAuthenticated())) {
+    return Response.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  const reference = new URL(request.url).searchParams.get("reference")?.trim();
+  if (!reference) {
+    return Response.json({ error: "A booking reference is required." }, { status: 400 });
+  }
+
+  try {
+    await deleteBookingRequest(reference);
+    return Response.json({ deleted: true });
+  } catch (error) {
+    console.error("Unable to delete booking request", error);
+    return Response.json({ error: "Unable to delete that booking." }, { status: 503 });
+  }
+}
