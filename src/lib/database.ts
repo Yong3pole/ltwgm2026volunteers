@@ -67,12 +67,19 @@ function getPool() {
     }
 
     const url = new URL(connectionString);
+    const sslRequired = url.searchParams.get("ssl-mode")?.toLowerCase() === "required";
+    const sslCa = process.env.MYSQL_SSL_CA;
     pool = mysql.createPool({
       host: url.hostname,
       port: Number(url.port || 3306),
       user: decodeURIComponent(url.username),
       password: decodeURIComponent(url.password),
       database: url.pathname.slice(1),
+      ...(sslRequired ? {
+        ssl: sslCa
+          ? { ca: sslCa, rejectUnauthorized: true }
+          : { rejectUnauthorized: false },
+      } : {}),
       connectionLimit: 5,
       waitForConnections: true,
       enableKeepAlive: true,
