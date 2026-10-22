@@ -36,13 +36,17 @@ function formatTime12(value: string) {
 }
 
 function formatScheduleRange(start: Date, end: Date) {
-  const startLabel = formatDate(start);
-  const endLabel = formatDate(end);
-  const endYear = new Intl.DateTimeFormat("en-US", {
+  const options: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
     year: "numeric",
     timeZone: "Asia/Manila",
-  }).format(end);
-  return `${startLabel} – ${endLabel}, ${endYear}`;
+  };
+
+  const startLabel = new Intl.DateTimeFormat("en-US", options).format(start);
+  const endLabel = new Intl.DateTimeFormat("en-US", options).format(end);
+
+  return `${startLabel} – ${endLabel}`;
 }
 
 function dateKey(date: Date) {
@@ -186,19 +190,14 @@ export default function Home() {
             <p className="eyebrow">Volunteer scheduling · Davao</p>
             <h1><em>Light the world.</em><br />One Act at a Time.</h1>
             <p className="hero__intro">
-              Join us at the Light The World Giving Machines. Choose a date
-              and shift that works for you, then submit your request for
-              coordinator confirmation.
+              Volunteer for the Light The World Giving Machines at{" "}
+              <strong>Ayala Malls Abreeza, Davao City</strong>. Sign up for a shift between{" "}
+              <strong>{formatScheduleRange(scheduleStart, scheduleEnd)}</strong> and submit your request for coordinator confirmation.
             </p>
-            <div className="hero__details">
-              <span>{formatScheduleRange(scheduleStart, scheduleEnd)}</span>
-              <span className="dot" />
-              <span>GMT+8 · Davao</span>
-            </div>
           </div>
           <div className="hero__art" aria-label="Light The World logo">
             <img
-              src="/images/ltwdavao-logo.jpg"
+              src="/images/giving-machine-3d.png"
               alt="Light The World Giving Machines"
             />
           </div>
