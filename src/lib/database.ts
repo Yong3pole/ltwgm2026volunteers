@@ -9,6 +9,10 @@ export type ShiftAvailability = {
   capacity: number;
   reserved: number;
 };
+export type AdminScheduleRow = ShiftAvailability & {
+  bookingCount: number;
+  waitlistCount: number;
+};
 
 type BookingInput = {
   shiftId: string;
@@ -199,6 +203,153 @@ export async function getShiftAvailability() {
   `);
 
   return rows;
+}
+
+export async function getAdminSchedule() {
+  await initializeDatabase();
+  const [rows] = await getPool().query<AdminScheduleRow[] & RowDataPacket[]>(`
+    SELECT
+      s.id AS shiftId,
+      DATE_FORMAT(s.service_date, '%Y-%m-%d') AS date,
+      s.label,
+      TIME_FORMAT(s.start_time, '%H:%i') AS startTime,
+      TIME_FORMAT(s.end_time, '%H:%i') AS endTime,
+      s.capacity,
+      0 AS reserved,
+      COUNT(DISTINCT CASE WHEN b.status IN ('pending', 'confirmed') THEN b.id END) AS bookingCount,
+      COUNT(DISTINCT CASE WHEN w.status = 'waiting' THEN w.id END) AS waitlistCount
+    FROM shifts s
+    LEFT JOIN booking_requests b ON b.shift_id = s.id
+    LEFT JOIN waitlist_entries w ON w.shift_id = s.id
+    WHERE s.active = TRUE
+    GROUP BY s.id, s.service_date, s.label, s.start_time, s.end_time, s.capacity
+    ORDER BY s.service_date, s.start_time
+  `);
+  return rows;
+}
+
+function validateScheduleDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("Use a valid schedule date.");
+}
+
+function validateScheduleTime(value: string) {
+  if (!/^\d{2}:\d{2}$/.test(value)) throw new Error("Use a valid time.");
+}
+
+export async function addScheduleDate(date: string, sourceDate?: string) {
+  validateScheduleDate(date);
+  if (sourceDate) validateScheduleDate(sourceDate);
+  await initializeDatabase();
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const source = sourceDate
+      ? await connection.query<RowDataPacket[]>(
+        "SELECT label, start_time AS startTime, end_time AS endTime, capacity FROM shifts WHERE service_date = ? AND active = TRUE ORDER BY start_time",
+        [sourceDate],
+      )
+      : [[
+        { label: "Day shift", startTime: "10:00:00", endTime: "16:00:00", capacity: 2 },
+        { label: "Evening shift", startTime: "15:00:00", endTime: "21:00:00", capacity: 2 },
+      ]];
+    const sourceRows = source[0] as RowDataPacket[];
+    if (sourceRows.length !== 2) throw new Error("The source date must have two active shifts.");
+    const existing = await connection.query<RowDataPacket[]>("SELECT id FROM shifts WHERE service_date = ? AND active = TRUE", [date]);
+    if ((existing[0] as RowDataPacket[]).length > 0) throw new Error("That date already exists.");
+    for (const row of sourceRows) {
+      const suffix = String(row.label).toLowerCase().includes("evening") ? "evening" : "day";
+      await connection.execute(
+        "INSERT INTO shifts (id, service_date, label, start_time, end_time, capacity, active) VALUES (?, ?, ?, ?, ?, ?, TRUE)",
+        [`${date}-${suffix}`, date, row.label, row.startTime, row.endTime, row.capacity],
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function updateScheduleDate(
+  currentDate: string,
+  date: string,
+  shifts: { shiftId: string; startTime: string; endTime: string; capacity: number }[],
+) {
+  validateScheduleDate(currentDate);
+  validateScheduleDate(date);
+  if (shifts.length !== 2 || shifts.some((shift) => !shift.shiftId || !Number.isInteger(shift.capacity) || shift.capacity < 1)) {
+    throw new Error("Both shifts and valid capacities are required.");
+  }
+  shifts.forEach((shift) => { validateScheduleTime(shift.startTime); validateScheduleTime(shift.endTime); });
+  await initializeDatabase();
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [existing] = await connection.query<RowDataPacket[]>(
+      "SELECT id FROM shifts WHERE service_date = ? AND active = TRUE FOR UPDATE", [currentDate],
+    );
+    if (existing.length !== 2) throw new Error("That schedule date was not found.");
+    if (currentDate !== date) {
+      const [conflict] = await connection.query<RowDataPacket[]>(
+        "SELECT id FROM shifts WHERE service_date = ? AND active = TRUE FOR UPDATE", [date],
+      );
+      if (conflict.length > 0) throw new Error("The new date already exists.");
+      const shiftIds = existing.map((shift) => shift.id);
+      const placeholders = shiftIds.map(() => "?").join(",");
+      const [bookings] = await connection.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS count FROM booking_requests WHERE shift_id IN (${placeholders}) AND status IN ('pending', 'confirmed')`, shiftIds,
+      );
+      const [waitlist] = await connection.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS count FROM waitlist_entries WHERE shift_id IN (${placeholders}) AND status = 'waiting'`, shiftIds,
+      );
+      if (Number(bookings[0].count) || Number(waitlist[0].count)) {
+        throw new Error("Reassign active bookings and waitlist entries before changing this date.");
+      }
+    }
+    for (const shift of shifts) {
+      await connection.execute(
+        "UPDATE shifts SET service_date = ?, start_time = ?, end_time = ?, capacity = ? WHERE id = ?",
+        [date, shift.startTime, shift.endTime, shift.capacity, shift.shiftId],
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function removeScheduleDate(date: string) {
+  validateScheduleDate(date);
+  await initializeDatabase();
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [shifts] = await connection.query<RowDataPacket[]>("SELECT id FROM shifts WHERE service_date = ? AND active = TRUE FOR UPDATE", [date]);
+    if (shifts.length !== 2) throw new Error("That schedule date was not found.");
+    const shiftIds = shifts.map((shift) => shift.id);
+    const placeholders = shiftIds.map(() => "?").join(",");
+    const [bookings] = await connection.query<RowDataPacket[]>(
+      `SELECT COUNT(*) AS count FROM booking_requests WHERE shift_id IN (${placeholders}) AND status IN ('pending', 'confirmed')`, shiftIds,
+    );
+    const [waitlist] = await connection.query<RowDataPacket[]>(
+      `SELECT COUNT(*) AS count FROM waitlist_entries WHERE shift_id IN (${placeholders}) AND status = 'waiting'`, shiftIds,
+    );
+    if (Number(bookings[0].count) || Number(waitlist[0].count)) {
+      throw new Error("Reassign active bookings and waitlist entries before removing this date.");
+    }
+    await connection.execute(`UPDATE shifts SET active = FALSE WHERE id IN (${placeholders})`, shiftIds);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 export async function createBookingRequest(input: BookingInput) {
