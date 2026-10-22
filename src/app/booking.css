@@ -1,0 +1,56 @@
+.booking-layout { display: flex; justify-content: center; padding-bottom: 90px; padding-top: 76px; }
+.schedule-picker { display: grid; gap: 12px; margin-bottom: 28px; }
+.schedule-picker__trigger { align-items: center; background: var(--paper); border: 1px solid var(--line); border-radius: 5px; color: var(--ink); display: flex; justify-content: space-between; padding: 17px; text-align: left; width: 100%; }
+.schedule-picker__trigger:hover { border-color: var(--red); }
+.schedule-picker__copy { display: block; min-width: 0; }
+.schedule-picker__trigger small, .schedule-picker__trigger strong, .schedule-picker__shift { display: block; }
+.schedule-picker__trigger small { color: var(--muted); font-size: 12px; margin-bottom: 7px; }
+.schedule-picker__trigger strong { font-size: 18px; font-weight: 400; }
+.schedule-picker__shift { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.schedule-picker__chevron { flex: 0 0 auto; margin-left: 16px; }
+.schedule-picker + .button { margin-top: 8px; }
+.booking-panel { background: var(--paper); border: 1px solid var(--line); border-radius: 5px; box-shadow: 0 12px 28px #4b1f2912; padding: 31px; width: 100%; max-width: 720px; }
+.booking-panel--active { border-top: 5px solid var(--red); }
+.booking-panel .eyebrow--dark { color: var(--red); }
+.participant-focus { background: #fff7f0; border-bottom: 1px solid var(--line); margin: -31px -31px 23px; padding: 25px 31px 20px; }
+.participant-focus .volunteer-tabs { margin: 15px 0 16px; }
+.panel-top { border-bottom: 1px solid var(--line); margin-bottom: 23px; padding-bottom: 20px; }
+.panel-top h2 { font-size: 27px; margin-bottom: 9px; }
+.panel-top p:last-child { color: var(--muted); font-size: 14px; line-height: 1.55; margin-bottom: 0; }
+.booking-panel label { font-size: 13px; }
+.booking-panel input, .booking-panel select { font-size: 14px; font-weight: 400; padding: 14px 13px; }
+.stake-guidance { background: #d1d35a; border-radius: 4px; color: var(--white); display: grid; gap: 4px; margin: -3px 0 18px; padding: 13px 15px; }
+.stake-guidance strong { font-size: 13px; color: black; }
+.stake-guidance span { font-size: 13px;  color: black; line-height: 1.45; }
+.form-footnote { color: #98898d; font-size: 12px; line-height: 1.5; margin: 15px 0 0; text-align: center; }
+.booking-panel .form-error { font-size: 13px; }
+.schedule-picker-calendar { border: 0; border-radius: 0; padding: 22px 25px 25px; }
+.schedule-picker-calendar .calendar__day { min-height: 45px; }
+.schedule-picker__back { background: transparent; border: 0; color: var(--red); font-size: 13px; justify-self: start; padding: 0 0 4px; }
+.volunteer-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0; }
+.volunteer-tabs .status-tab { background: #fff1f3; border: 1px solid #f1cbd1; border-radius: 3px; color: var(--red); font-size: 13px; font-weight: 700; padding: 11px 14px; }
+.volunteer-tabs .status-tab:hover { border-color: var(--red); }
+.volunteer-tabs .status-tab--active { background: var(--red); border-color: var(--red); color: var(--white); }
+.schedule-picker-modal .shift-picker-modal__header p:last-child { font-size: 13px; line-height: 1.45; }
+.schedule-picker-modal .shift-picker-option__main strong { font-size: 16px; }
+.schedule-picker-modal .shift-picker-option__main small,
+.schedule-picker-modal .shift-picker-option__availability small,
+.schedule-picker-modal .shift-picker-warning { font-size: 12px; }
+.schedule-picker-modal .shift-picker-option__availability b { font-size: 14px; }
+.schedule-picker-modal .calendar__weekdays,
+.schedule-picker-modal .calendar__hint { font-size: 12px; }
+.schedule-picker-modal { background: var(--paper); overflow: hidden; width: 100%; }
+.schedule-picker-modal .shift-picker-options { background: var(--paper); padding: 18px 25px 25px; }
+.schedule-picker-modal .schedule-picker__back { border-bottom: 1px solid var(--line); margin-bottom: 2px; padding: 0 0 14px; width: 100%; }
+.schedule-picker-modal .shift-picker-option { box-shadow: 0 2px 8px #4b1f2912; }
+.schedule-picker-modal .shift-picker-option:hover,
+.schedule-picker-modal .shift-picker-option--selected { box-shadow: inset 3px 0 var(--red), 0 2px 8px #4b1f2912; }
+
+@media (max-width: 800px) {
+  .booking-layout { padding-bottom: 55px; padding-top: 45px; }
+}
+
+@media (max-width: 520px) {
+  .booking-panel { padding: 22px 18px; }
+  .participant-focus { margin: -22px -18px 20px; padding: 21px 18px 17px; }
+}

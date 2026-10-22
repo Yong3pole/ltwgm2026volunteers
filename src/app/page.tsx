@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import Swal from "sweetalert2";
 
 const fallbackShifts = [
   { id: "morning", label: "Day shift", time: "10:00 AM – 4:00 PM" },
@@ -16,6 +18,29 @@ type Availability = {
   capacity: number;
   reserved: number;
 };
+type Participant = {
+  id: string;
+  stakeDistrict: string;
+  wardBranch: string;
+  fullName: string;
+  phone: string;
+  date: string;
+  shiftId: string;
+};
+type StakeScheduleGuidance = {
+  stake: string;
+  dateRange: string;
+  shiftPeriod: "DAYTIME" | "EVENING";
+};
+
+const stakeScheduleGuidance: StakeScheduleGuidance[] = [
+  { stake: "Tagum", dateRange: "Nov 28 – Dec 10", shiftPeriod: "DAYTIME" },
+  { stake: "Davao", dateRange: "Nov 28 – Dec 10", shiftPeriod: "EVENING" },
+  { stake: "Panabo", dateRange: "Dec 11 – Dec 23", shiftPeriod: "DAYTIME" },
+  { stake: "Davao West", dateRange: "Dec 11 – Dec 23", shiftPeriod: "EVENING" },
+  { stake: "Digos", dateRange: "Dec 24 – Jan 6", shiftPeriod: "DAYTIME" },
+  { stake: "Buhangin", dateRange: "Dec 24 – Jan 6", shiftPeriod: "EVENING" },
+];
 
 const fallbackStart = new Date("2026-11-28T12:00:00+08:00");
 const fallbackEnd = new Date("2027-01-10T12:00:00+08:00");
@@ -66,12 +91,15 @@ function getCalendarDays(month: Date) {
 }
 
 export default function Home() {
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [volunteerCount, setVolunteerCount] = useState(0);
+  const [volunteerCountInput, setVolunteerCountInput] = useState("1");
+  const [activeParticipant, setActiveParticipant] = useState(0);
   const [selectedDate, setSelectedDate] = useState(fallbackStart);
   const [calendarMonth, setCalendarMonth] = useState(new Date(2026, 10, 1, 12));
-  const [selectedShift, setSelectedShift] = useState(fallbackShifts[0].id);
-  const [submitted, setSubmitted] = useState(false);
-  const [reference, setReference] = useState("");
-  const [waitlisted, setWaitlisted] = useState(false);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [shiftPickerOpen, setShiftPickerOpen] = useState(false);
+  const [schedulePickerStep, setSchedulePickerStep] = useState<"date" | "shift">("date");
   const [availability, setAvailability] = useState<Availability[]>([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -104,15 +132,19 @@ export default function Home() {
   );
   const scheduleStart = eventDates[0] ?? fallbackStart;
   const scheduleEnd = eventDates[eventDates.length - 1] ?? fallbackEnd;
-  const activeSelectedDate = eventDates.length > 0 && !availableDateKeys.includes(dateKey(selectedDate))
-    ? eventDates[0]
+  const currentParticipant = participants[activeParticipant];
+  const activeParticipantDate = currentParticipant?.date
+    ? new Date(`${currentParticipant.date}T12:00:00+08:00`)
     : selectedDate;
+  const activeSelectedDate = eventDates.length > 0 && !availableDateKeys.includes(dateKey(activeParticipantDate))
+    ? eventDates[0]
+    : activeParticipantDate;
   const selectedDateAvailability = availability.filter((item) => item.date === dateKey(activeSelectedDate));
   const displayedShifts = selectedDateAvailability.length > 0
     ? selectedDateAvailability
     : fallbackShifts.map((shift) => ({
       shiftId: `${dateKey(activeSelectedDate)}-${shift.id === "morning" ? "day" : "evening"}`,
-      date: dateKey(activeSelectedDate),
+      date: dateKey(eventDates[0] ?? fallbackStart),
       label: shift.label,
       startTime: shift.id === "morning" ? "10:00" : "15:00",
       endTime: shift.id === "morning" ? "16:00" : "21:00",
@@ -120,6 +152,21 @@ export default function Home() {
       reserved: 0,
     }));
   const selectedDateKey = dateKey(activeSelectedDate);
+  const currentParticipantDateLabel = currentParticipant?.date
+    ? formatDate(new Date(`${currentParticipant.date}T12:00:00+08:00`))
+    : "Date not selected";
+  const currentParticipantShift = currentParticipant?.shiftId
+    ? displayedShifts.find((shift) => shift.shiftId === currentParticipant.shiftId)
+    : undefined;
+  const currentParticipantShiftLabel = currentParticipant?.shiftId
+    ? currentParticipantShift?.label ?? "Selected shift"
+    : "Shift not selected";
+  const currentParticipantShiftTime = currentParticipantShift
+    ? `${formatTime12(currentParticipantShift.startTime)} – ${formatTime12(currentParticipantShift.endTime)}`
+    : "";
+  const currentStakeGuidance = currentParticipant?.stakeDistrict
+    ? stakeScheduleGuidance.find((item) => item.stake === currentParticipant.stakeDistrict)
+    : undefined;
   const calendarDays = getCalendarDays(calendarMonth);
   const calendarMonthLabel = new Intl.DateTimeFormat("en-US", {
     month: "long",
@@ -137,43 +184,80 @@ export default function Home() {
       : 2;
   }
 
-  const selectedDateLabel = useMemo(
-    () =>
-      new Intl.DateTimeFormat("en-US", {
-        dateStyle: "full",
-        timeZone: "Asia/Manila",
-      }).format(activeSelectedDate),
-    [activeSelectedDate],
-  );
+  function updateParticipant(id: string, update: Partial<Participant>) {
+    setParticipants((current) => current.map((person) => person.id === id ? { ...person, ...update } : person));
+  }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function beginForm(count: number) {
+    const people = Array.from({ length: count }, (_, index) => ({
+      id: `person-${index + 1}`,
+      stakeDistrict: "",
+      wardBranch: "",
+      fullName: "",
+      phone: "",
+      date: dateKey(eventDates[0] ?? fallbackStart),
+      shiftId: "",
+    }));
+    setVolunteerCount(count);
+    setParticipants(people);
+    setActiveParticipant(0);
+    setSelectedDate(eventDates[0] ?? fallbackStart);
+  }
+
+  function chooseParticipant(index: number) {
+    const person = participants[index];
+    setActiveParticipant(index);
+    const date = person?.date ? new Date(`${person.date}T12:00:00+08:00`) : fallbackStart;
+    setSelectedDate(date);
+    setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1, 12));
+  }
+
+  function setVolunteerCountFromInput(value: string) {
+    setVolunteerCountInput(value.replace(/[^\d]/g, "").slice(0, 2));
+  }
+
+  function normalizeVolunteerCount() {
+    const parsed = Number(volunteerCountInput);
+    const count = Math.min(20, Math.max(1, Number.isFinite(parsed) && parsed > 0 ? parsed : 1));
+    setVolunteerCountInput(String(count));
+    return count;
+  }
+
+  async function handleSubmit() {
     setError("");
     setSubmitting(true);
-    const formData = new FormData(event.currentTarget);
-
     try {
       const response = await fetch("/api/booking-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shiftId: displayedShifts.find((shift) => shift.shiftId.endsWith(selectedShift === "morning" ? "-day" : "-evening"))?.shiftId,
-          fullName: formData.get("name"),
-          phone: formData.get("phone"),
-          organization: formData.get("organization"),
-          leaderName: formData.get("leaderName"),
-          leaderPhone: formData.get("leaderPhone"),
+          people: participants.map((person) => ({
+            shiftId: person.shiftId,
+            stakeDistrict: person.stakeDistrict,
+            wardBranch: person.wardBranch,
+            fullName: person.fullName,
+            phone: person.phone,
+          })),
         }),
       });
-      const data = (await response.json()) as { error?: string; reference?: string; waitlisted?: boolean };
+      const data = (await response.json()) as { error?: string; groupReference?: string; waitlisted?: boolean };
 
       if (!response.ok) {
         throw new Error(data.error ?? "We could not save your request.");
       }
 
-      setReference(data.reference ?? "");
-      setWaitlisted(data.waitlisted ?? false);
-      setSubmitted(true);
+      setConfirmationOpen(false);
+      await Swal.fire({
+        icon: "success",
+        title: data.waitlisted ? "You are on the waitlist." : "Thank you for volunteering.",
+        text: data.waitlisted
+          ? "That shift is currently full, so your details have been saved in case a spot opens."
+          : "Your request is pending coordinator review and is holding a spot for this shift.",
+        footer: `Reference: <strong>${data.groupReference ?? "Not available"}</strong>`,
+        confirmButtonText: "Done",
+        confirmButtonColor: "#d50032",
+      });
+      window.location.reload();
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "We could not save your request.");
     } finally {
@@ -188,7 +272,8 @@ export default function Home() {
         <div className="shell hero__content">
           <div className="hero__copy">
             <p className="eyebrow">Volunteer scheduling · Davao</p>
-            <h1><em>Light the world.</em><br />One Act at a Time.</h1>
+            <h1><em>#LightTheWorld</em><br />One Act at a Time</h1>
+            <Link className="hero__overview-link" href="/overview">View All Volunteers <span>→</span></Link>
             <p className="hero__intro">
               Volunteer for the Light The World Giving Machines at{" "}
               <strong>Ayala Malls Abreeza, Davao City</strong>. Sign up for a shift between{" "}
@@ -205,152 +290,217 @@ export default function Home() {
       </section>
 
       <section className="shell booking-layout">
-        <div className="booking-main">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow eyebrow--dark">01 · Choose your schedule</p>
-              <h2>When can you serve?</h2>
+        {volunteerCount === 0 ? (
+          <div className="booking-panel">
+            <div className="panel-top">
+              <p className="eyebrow eyebrow--dark" style={{ fontSize: "12px" }}>Start your request</p>
+              <h2>How many volunteers are you registering</h2>
             </div>
-            <span className="timezone">All times GMT+8</span>
+            <form onSubmit={(event) => {
+              event.preventDefault();
+              const count = normalizeVolunteerCount();
+              beginForm(count);
+            }}>
+              <label className="volunteer-count-label">Number of volunteers
+                <div className="number-stepper">
+                  <input
+                    name="volunteerCount"
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max="20"
+                    value={volunteerCountInput}
+                    required
+                    aria-label="Number of volunteers"
+                    onChange={(event) => setVolunteerCountFromInput(event.target.value)}
+                    onBlur={normalizeVolunteerCount}
+                  />
+                </div>
+              </label>
+              <button className="button" type="submit">Continue <span>→</span></button>
+            </form>
           </div>
+        ) : (
+        <>
+        <aside className="booking-panel booking-panel--active">
+          <div className="panel-top participant-focus">
+            <p className="eyebrow eyebrow--dark" style={{ fontSize: "12px" }}>Select a Volunteer to enter details</p>
+            <div className="volunteer-tabs">
+              {participants.map((person, index) => <button className={index === activeParticipant ? "status-tab status-tab--active" : "status-tab"} key={person.id} onClick={() => chooseParticipant(index)} type="button">Volunteer {index + 1}</button>)}
+            </div>
+            <p style={{ fontSize: "16px" }}>Enter details, date, and shift.</p>
+          </div>
+          <form onSubmit={(event) => event.preventDefault()}>
+              {currentParticipant && (
+                <div className="participant-card">
+                  <label>
+                    Stake or District
+                    <select value={currentParticipant.stakeDistrict} required onChange={(event) => updateParticipant(currentParticipant.id, { stakeDistrict: event.target.value })}>
+                      <option value="" disabled>Select your stake or district</option>
+                      {["Buhangin", "Davao", "Davao West", "Panabo", "Tagum", "Digos"].map((name) => <option key={name} value={name}>{name}</option>)}
+                    </select>
+                  </label>
+                  {currentStakeGuidance && (
+                    <div className="stake-guidance" role="status">
+                      <strong>Recommended schedule for {currentStakeGuidance.stake.toUpperCase()} stake:</strong>
+                      <span>Please select {currentStakeGuidance.shiftPeriod} shifts between {currentStakeGuidance.dateRange}</span>
+                    </div>
+                  )}
+                  <label>
+                    Ward or Branch
+                    <input value={currentParticipant.wardBranch} required placeholder="Enter your ward or branch" maxLength={160} onChange={(event) => updateParticipant(currentParticipant.id, { wardBranch: event.target.value })} />
+                  </label>
+                  <label>
+                    Full Name
+                    <input value={currentParticipant.fullName} required placeholder="e.g. Juan Dela Cruz" maxLength={120} autoComplete="name" onChange={(event) => updateParticipant(currentParticipant.id, { fullName: event.target.value })} />
+                  </label>
+                  <label>
+                    Contact Number
+                    <input value={currentParticipant.phone} required placeholder="09123456789" type="tel" inputMode="tel" autoComplete="tel" pattern="(09[0-9]{9}|\+639[0-9]{9}|9[0-9]{9})" title="Use 09123456789, +639123456789, or 9123456789" onChange={(event) => updateParticipant(currentParticipant.id, { phone: event.target.value })} />
+                  </label>
+                </div>
+              )}
+              <div className="schedule-picker">
+                <button
+                  className="schedule-picker__trigger"
+                  type="button"
+                  onClick={() => {
+                    setSchedulePickerStep("date");
+                    setShiftPickerOpen(true);
+                  }}
+                >
+                  <span className="schedule-picker__copy">
+                    <small>Selected schedule · Volunteer {activeParticipant + 1}</small>
+                    <strong>{currentParticipantDateLabel}</strong>
+                    <span className="schedule-picker__shift">
+                      {currentParticipant?.shiftId ? `${currentParticipantShiftLabel} · ${currentParticipantShiftTime}` : "Choose a shift"}
+                    </span>
+                  </span>
+                  <span className="schedule-picker__chevron" aria-hidden="true">⌄</span>
+                </button>
+              </div>
 
-          <div className="calendar" aria-label="Choose a volunteer date">
-            <div className="calendar__header">
-              <button
-                className="calendar__nav"
-                disabled={firstCalendarMonth}
-                onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1, 12))}
-                type="button"
-                aria-label="Previous month"
-              >
-                ‹
+              {error && (
+                <p className="form-error" role="alert">
+                  {error}
+                </p>
+              )}
+
+              <button className="button" disabled={submitting} onClick={(event) => {
+                if (!participants.every((person) => person.stakeDistrict && person.wardBranch && person.fullName && person.phone && person.shiftId)) {
+                  event.preventDefault();
+                  setError("Complete the details and schedule for every volunteer before reviewing.");
+                  return;
+                }
+                event.preventDefault();
+                setConfirmationOpen(true);
+              }} type="submit">
+                Submit Request{" "}
+                <span>→</span>
               </button>
-              <strong>{calendarMonthLabel}</strong>
-              <button
-                className="calendar__nav"
-                disabled={lastCalendarMonth}
-                onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1, 12))}
-                type="button"
-                aria-label="Next month"
-              >
-                ›
-              </button>
+
+              <p className="form-footnote">
+                Your coordinator will review and confirm your request after submission.
+              </p>
+          </form>
+        </aside>
+        </>
+        )}
+      </section>
+
+      {shiftPickerOpen && currentParticipant && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="shift-picker-modal schedule-picker-modal" role="dialog" aria-modal="true" aria-labelledby="shift-picker-title">
+            <div className="shift-picker-modal__header">
+              <div>
+                <p className="eyebrow eyebrow--dark">Volunteer {activeParticipant + 1}</p>
+                <h2 id="shift-picker-title">{schedulePickerStep === "date" ? "Choose a date" : "Choose a shift"}</h2>
+                <p>{schedulePickerStep === "date" ? "Select an available date to see its shifts." : `${formatDate(selectedDate)} · Select an available shift or join its waitlist.`}</p>
+              </div>
+              <button type="button" onClick={() => setShiftPickerOpen(false)} aria-label="Close schedule picker">×</button>
             </div>
-            <div className="calendar__weekdays" aria-hidden="true">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((weekday) => <span key={weekday}>{weekday}</span>)}
+            {schedulePickerStep === "date" ? (
+              <div className="schedule-picker-calendar calendar" aria-label="Choose a volunteer date">
+                <div className="calendar__header">
+                  <button className="calendar__nav" disabled={firstCalendarMonth} onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1, 12))} type="button" aria-label="Previous month">‹</button>
+                  <strong>{calendarMonthLabel}</strong>
+                  <button className="calendar__nav" disabled={lastCalendarMonth} onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1, 12))} type="button" aria-label="Next month">›</button>
+                </div>
+                <div className="calendar__weekdays" aria-hidden="true">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((weekday) => <span key={weekday}>{weekday}</span>)}
+                </div>
+                <div className="calendar__grid">
+                  {calendarDays.map((date, index) => {
+                    if (!date) return <span className="calendar__empty" key={`empty-${index}`} />;
+                    const key = dateKey(date);
+                    const isAvailable = availableDateKeys.length > 0 ? availableDateKeys.includes(key) : key >= dateKey(fallbackStart) && key <= dateKey(fallbackEnd);
+                    const isSelected = key === selectedDateKey;
+                    return (
+                      <button className={`calendar__day${isSelected ? " calendar__day--selected" : ""}${!isAvailable ? " calendar__day--disabled" : ""}`} disabled={!isAvailable} key={key} onClick={() => {
+                        setSelectedDate(date);
+                        setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1, 12));
+                        updateParticipant(currentParticipant.id, { date: key, shiftId: "" });
+                        setSchedulePickerStep("shift");
+                      }} type="button" aria-label={isAvailable ? `Choose ${formatDate(date)}` : `${formatDate(date)} unavailable`} aria-pressed={isSelected}>
+                        {date.getDate()}{isAvailable && <i aria-hidden="true" />}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="calendar__hint"><span aria-hidden="true" /> Available dates are marked with a dot</p>
+              </div>
+            ) : (
+              <div className="shift-picker-options">
+                <button className="schedule-picker__back" type="button" onClick={() => setSchedulePickerStep("date")}>← Change date</button>
+                {displayedShifts.map((shift) => {
+                  const spots = getSpotsOpen(shift.shiftId);
+                  const full = spots === 0;
+                  return (
+                    <button className={`shift-picker-option${currentParticipant.shiftId === shift.shiftId ? " shift-picker-option--selected" : ""}${full ? " shift-picker-option--full" : ""}`} key={shift.shiftId} type="button" onClick={() => {
+                      updateParticipant(currentParticipant.id, { date: selectedDateKey, shiftId: shift.shiftId });
+                      setShiftPickerOpen(false);
+                    }}>
+                      <span className="shift-picker-option__main"><strong>{shift.label}</strong><small>{formatTime12(shift.startTime)} – {formatTime12(shift.endTime)}</small></span>
+                      <span className="shift-picker-option__availability"><b>{full ? "FULL" : `${spots} open`}</b><small>{full ? "Waitlist available" : "spots remaining"}</small></span>
+                      {full && <span className="shift-picker-warning">This shift is full. Selecting it will waitlist this volunteer.</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {confirmationOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="edit-modal confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="confirmation-title">
+            <div className="edit-modal__header">
+              <h2 id="confirmation-title">Confirm request</h2>
+              <button type="button" onClick={() => setConfirmationOpen(false)} aria-label="Close confirmation">×</button>
             </div>
-            <div className="calendar__grid">
-              {calendarDays.map((date, index) => {
-                if (!date) return <span className="calendar__empty" key={`empty-${index}`} />;
-                const key = dateKey(date);
-                const isAvailable = availableDateKeys.length > 0
-                  ? availableDateKeys.includes(key)
-                  : key >= dateKey(fallbackStart) && key <= dateKey(fallbackEnd);
-                const isSelected = key === selectedDateKey;
+            <p>Review the volunteers and schedules below before submitting.</p>
+            <div className="confirmation-list">
+              {participants.map((person, index) => {
+                const shift = availability.find((item) => item.shiftId === person.shiftId);
                 return (
-                  <button
-                    className={`calendar__day${isSelected ? " calendar__day--selected" : ""}${!isAvailable ? " calendar__day--disabled" : ""}`}
-                    disabled={!isAvailable}
-                    key={key}
-                    onClick={() => setSelectedDate(date)}
-                    type="button"
-                    aria-label={isAvailable ? `Choose ${formatDate(date)}` : `${formatDate(date)} unavailable`}
-                    aria-pressed={isSelected}
-                  >
-                    {date.getDate()}
-                    {isAvailable && <i aria-hidden="true" />}
-                  </button>
+                  <article className="confirmation-card" key={person.id}>
+                    <strong>Volunteer {index + 1}: {person.fullName}</strong>
+                    <small>{person.stakeDistrict} · {person.wardBranch}</small>
+                    <small>{person.phone}</small>
+                    <small>{person.date ? formatDate(new Date(`${person.date}T12:00:00+08:00`)) : "Date not selected"} · {shift?.label ?? "Shift not selected"}</small>
+                    <small>{shift ? `${formatTime12(shift.startTime)} – ${formatTime12(shift.endTime)} · ${Math.max(shift.capacity - shift.reserved, 0)} spots currently open` : ""}</small>
+                  </article>
                 );
               })}
             </div>
-            <p className="calendar__hint"><span aria-hidden="true" /> Available dates are marked with a dot</p>
-          </div>
-
-          <div className="chosen-date">
-            <span className="chosen-date__icon">◷</span>
-            <div>
-              <small>Selected date</small>
-              <strong>{selectedDateLabel}</strong>
-            </div>
-          </div>
-
-          <div className="shift-list">
-            {displayedShifts.map((shift) => {
-              const shiftType = shift.shiftId.endsWith("-day") ? "morning" : "evening";
-              const isSelected = selectedShift === shiftType;
-              return (
-                <button
-                  className={`shift-card${isSelected ? " shift-card--selected" : ""}`}
-                  key={shift.shiftId}
-                  onClick={() => setSelectedShift(shiftType)}
-                  type="button"
-                  aria-pressed={isSelected}
-                >
-                  <span className={`radio${isSelected ? " radio--selected" : ""}`} />
-                  <span className="shift-card__copy">
-                    <strong>{shift.label}</strong>
-                    <span>{formatTime12(shift.startTime)} – {formatTime12(shift.endTime)}</span>
-                  </span>
-                  <span className="availability"><b>{getSpotsOpen(shift.shiftId)}</b> spots open</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="notice">
-            <span>i</span>
-            <p>Your request will hold a spot while it is reviewed. A coordinator will confirm your booking through the admin dashboard.</p>
-          </div>
+            {error && <p className="form-error" role="alert">{error}</p>}
+            <button className="button" disabled={submitting} onClick={() => handleSubmit()} type="button">
+              {submitting ? "Submitting…" : "Confirm and Submit"} <span>→</span>
+            </button>
+          </section>
         </div>
-
-        <aside className="booking-panel">
-          <div className="panel-top">
-            <p className="eyebrow eyebrow--dark">02 · Your details</p>
-            <h2>Request a shift</h2>
-            <p>Complete the form below to request your volunteer schedule.</p>
-          </div>
-          {submitted ? (
-            <div className="success-message">
-              <div className="success-icon">✓</div>
-              <p className="eyebrow eyebrow--dark">{waitlisted ? "Added to the waitlist" : "Request received"}</p>
-              <h3>{waitlisted ? "You are on the waitlist." : "Thank you for volunteering."}</h3>
-              <p>{waitlisted ? "That shift is currently full, so your details have been saved in case a spot opens." : "Your request is pending coordinator review and is holding a spot for this shift."}</p>
-              <p className="reference">Reference: <strong>{reference}</strong></p>
-              <button className="button button--secondary" onClick={() => setSubmitted(false)} type="button">Submit another request</button>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit}>
-              <label>
-                Full name
-                <input name="name" required placeholder="Your full name" />
-              </label>
-              <label>
-                Mobile number
-                <input name="phone" required placeholder="09XXXXXXXXX or +639XXXXXXXXX" type="tel" inputMode="tel" pattern="(09[0-9]{9}|\+639[0-9]{9})" title="Use 09XXXXXXXXX or +639XXXXXXXXX" />
-              </label>
-              <label>
-                Ward / organization
-                <input name="organization" required placeholder="Your ward or organization" />
-              </label>
-              <label>
-                Bishop / Branch President name
-                <input name="leaderName" required placeholder="Full name" maxLength={120} />
-              </label>
-              <label>
-                Bishop / Branch President contact <span className="optional">(optional)</span>
-                <input name="leaderPhone" placeholder="09XXXXXXXXX or +639XXXXXXXXX" type="tel" inputMode="tel" pattern="(09[0-9]{9}|\+639[0-9]{9})" title="Use 09XXXXXXXXX or +639XXXXXXXXX" />
-              </label>
-              <div className="form-summary">
-                <span>Your request</span>
-                <strong>{formatDate(activeSelectedDate)} · {formatTime12(displayedShifts.find((shift) => shift.shiftId.endsWith(selectedShift === "morning" ? "-day" : "-evening"))?.startTime ?? "00:00")}–{formatTime12(displayedShifts.find((shift) => shift.shiftId.endsWith(selectedShift === "morning" ? "-day" : "-evening"))?.endTime ?? "00:00")}</strong>
-              </div>
-              {error && <p className="form-error" role="alert">{error}</p>}
-              <button className="button" disabled={submitting} type="submit">{submitting ? "Saving request…" : "Submit booking request"} <span>→</span></button>
-              <p className="form-footnote">No email notifications for now. Your coordinator will review and confirm your request.</p>
-            </form>
-          )}
-        </aside>
-      </section>
+      )}
 
       <footer className="footer" id="admin">
         <div className="shell footer__inner">
