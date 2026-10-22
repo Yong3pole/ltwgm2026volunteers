@@ -32,6 +32,7 @@ export async function PATCH(request: Request) {
     shiftId?: unknown;
     fullName?: unknown;
     phone?: unknown;
+    stakeDistrict?: unknown;
     organization?: unknown;
     leaderName?: unknown;
     leaderPhone?: unknown;
@@ -46,11 +47,10 @@ export async function PATCH(request: Request) {
   const status = body.status === "confirmed" || body.status === "rejected" ? body.status : undefined;
   const shiftId = typeof body.shiftId === "string" ? body.shiftId.trim() : "";
   const editFields = {
+    stakeDistrict: typeof body.stakeDistrict === "string" ? body.stakeDistrict.trim() : "",
     fullName: typeof body.fullName === "string" ? body.fullName.trim() : "",
     phone: typeof body.phone === "string" ? body.phone.trim() : "",
     organization: typeof body.organization === "string" ? body.organization.trim() : "",
-    leaderName: typeof body.leaderName === "string" ? body.leaderName.trim() : "",
-    leaderPhone: typeof body.leaderPhone === "string" ? body.leaderPhone.trim() : "",
   };
   if (!reference || (!status && (!shiftId || Object.values(editFields).every((value) => !value)))) {
     return Response.json({ error: "A reference and an update are required." }, { status: 400 });
@@ -60,7 +60,7 @@ export async function PATCH(request: Request) {
     if (status) {
       await updateBookingStatus(reference, status);
     } else {
-      if (!shiftId || !editFields.fullName || !editFields.phone || !editFields.organization || !editFields.leaderName) {
+      if (!shiftId || !editFields.stakeDistrict || !editFields.fullName || !editFields.phone || !editFields.organization) {
         return Response.json({ error: "Complete all required booking fields." }, { status: 400 });
       }
       await editBookingRequest(reference, { ...editFields, shiftId });

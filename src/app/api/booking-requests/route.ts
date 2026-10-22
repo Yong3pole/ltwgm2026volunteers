@@ -1,12 +1,7 @@
 import { createBookingRequest } from "@/lib/database";
 
 type BookingPayload = {
-  shiftId?: unknown;
-  fullName?: unknown;
-  phone?: unknown;
-  organization?: unknown;
-  leaderName?: unknown;
-  leaderPhone?: unknown;
+  people?: unknown;
 };
 
 function textValue(value: unknown) {
@@ -22,34 +17,43 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const input = {
-    shiftId: textValue(payload.shiftId),
-    fullName: textValue(payload.fullName),
-    phone: textValue(payload.phone),
-    organization: textValue(payload.organization),
-    leaderName: textValue(payload.leaderName),
-    leaderPhone: textValue(payload.leaderPhone),
-  };
+  const people = Array.isArray(payload.people)
+    ? payload.people.map((person) => {
+      const value = person && typeof person === "object" ? person as Record<string, unknown> : {};
+      return {
+        stakeDistrict: textValue(value.stakeDistrict),
+        wardBranch: textValue(value.wardBranch),
+        fullName: textValue(value.fullName),
+        phone: textValue(value.phone),
+        shiftId: textValue(value.shiftId),
+      };
+    })
+    : [];
 
-  if (!input.shiftId || !input.fullName || !input.phone || !input.organization || !input.leaderName) {
+  if (people.length === 0 || people.some((person) =>
+    !person.stakeDistrict || !person.wardBranch || !person.fullName || !person.phone || !person.shiftId
+  )) {
     return Response.json(
       { error: "Please complete all required fields." },
       { status: 400 },
     );
   }
 
-  if (input.fullName.length > 120 || input.phone.length > 40 ||
-      input.organization.length > 160 || input.leaderName.length > 120 || input.leaderPhone.length > 40) {
+  if (people.some((person) => person.shiftId.length > 64 ||
+    person.fullName.length > 120 || person.phone.length > 40 ||
+    person.stakeDistrict.length > 100 || person.wardBranch.length > 160
+  )) {
     return Response.json({ error: "One or more fields are too long." }, { status: 400 });
   }
 
   const phonePattern = /^(09\d{9}|\+639\d{9})$/;
-  if (!phonePattern.test(input.phone) || (input.leaderPhone && !phonePattern.test(input.leaderPhone))) {
+  if (people.some((person) => !phonePattern.test(person.phone))) {
     return Response.json({ error: "Use Philippine mobile format: 09XXXXXXXXX or +639XXXXXXXXX." }, { status: 400 });
   }
 
   try {
-    const result = await createBookingRequest(input);
+    const groupReference = `GRP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const result = await createBookingRequest({ people, groupReference });
     return Response.json(result, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";

@@ -15,43 +15,45 @@ export type AdminScheduleRow = ShiftAvailability & {
 };
 
 type BookingInput = {
-  shiftId: string;
-  fullName: string;
-  phone: string;
-  organization: string;
-  leaderName: string;
-  leaderPhone: string;
+  groupReference: string;
+  people: Array<{
+    shiftId: string;
+    stakeDistrict: string;
+    wardBranch: string;
+    fullName: string;
+    phone: string;
+  }>;
 };
 
 type ShiftRow = RowDataPacket & { capacity: number };
 type ReferenceRow = RowDataPacket & { reference: string };
 type AdminRequestRow = RowDataPacket & {
   reference: string;
+  groupReference: string;
   shiftId: string;
   date: string;
   shiftLabel: string;
   startTime: string;
   endTime: string;
+  stakeDistrict: string;
   fullName: string;
   phone: string;
   organization: string;
-  leaderName: string;
-  leaderPhone: string;
   status: "pending" | "confirmed" | "rejected" | "cancelled";
   createdAt: string;
 };
 export type WaitlistRow = {
   reference: string;
+  groupReference: string;
   shiftId: string;
   date: string;
   shiftLabel: string;
   startTime: string;
   endTime: string;
+  stakeDistrict: string;
   fullName: string;
   phone: string;
   organization: string;
-  leaderName: string;
-  leaderPhone: string;
   createdAt: string;
 };
 
@@ -120,45 +122,55 @@ export async function initializeDatabase() {
         UNIQUE KEY unique_shift_time (service_date, start_time, end_time)
       )
     `);
+
     await db.query(`
       CREATE TABLE IF NOT EXISTS booking_requests (
         id CHAR(36) PRIMARY KEY,
         reference VARCHAR(32) NOT NULL UNIQUE,
         shift_id VARCHAR(64) NOT NULL,
+        group_reference VARCHAR(32) NULL,
+        stake_district VARCHAR(100) NOT NULL,
         full_name VARCHAR(120) NOT NULL,
         phone VARCHAR(40) NOT NULL,
         organization VARCHAR(160) NOT NULL,
-        leader_contact VARCHAR(160) NOT NULL,
-        leader_name VARCHAR(120) NULL,
-        leader_phone VARCHAR(40) NULL,
-        status ENUM('pending', 'confirmed', 'rejected', 'cancelled') NOT NULL DEFAULT 'pending',
+        status ENUM(
+          'pending',
+          'confirmed',
+          'rejected',
+          'cancelled'
+        ) NOT NULL DEFAULT 'pending',
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (shift_id) REFERENCES shifts(id),
         INDEX active_shift_phone (shift_id, phone, status),
         INDEX active_shift_status (shift_id, status)
       )
     `);
+
     await db.query(`
       CREATE TABLE IF NOT EXISTS waitlist_entries (
         id CHAR(36) PRIMARY KEY,
         reference VARCHAR(32) NOT NULL UNIQUE,
         shift_id VARCHAR(64) NOT NULL,
+        group_reference VARCHAR(32) NULL,
+        stake_district VARCHAR(100) NOT NULL,
         full_name VARCHAR(120) NOT NULL,
         phone VARCHAR(40) NOT NULL,
         organization VARCHAR(160) NOT NULL,
-        leader_contact VARCHAR(160) NOT NULL,
-        leader_name VARCHAR(120) NULL,
-        leader_phone VARCHAR(40) NULL,
-        status ENUM('waiting', 'promoted', 'cancelled') NOT NULL DEFAULT 'waiting',
+        status ENUM(
+          'waiting',
+          'promoted',
+          'cancelled'
+        ) NOT NULL DEFAULT 'waiting',
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (shift_id) REFERENCES shifts(id)
       )
     `);
 
+
     for (const table of ["booking_requests", "waitlist_entries"]) {
       const [columns] = await db.query<RowDataPacket[]>(
         `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ('leader_name', 'leader_phone')`,
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ('leader_name', 'leader_phone', 'stake_district')`,
         [table],
       );
       const existingColumns = new Set(columns.map((column) => column.COLUMN_NAME));
@@ -167,6 +179,17 @@ export async function initializeDatabase() {
       }
       if (!existingColumns.has("leader_phone")) {
         await db.query(`ALTER TABLE ${table} ADD COLUMN leader_phone VARCHAR(40) NULL`);
+      }
+      if (!existingColumns.has("stake_district")) {
+        await db.query(`ALTER TABLE ${table} ADD COLUMN stake_district VARCHAR(100) NOT NULL DEFAULT ''`);
+      }
+      const [groupColumns] = await db.query<RowDataPacket[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'group_reference'`,
+        [table],
+      );
+      if (groupColumns.length === 0) {
+        await db.query(`ALTER TABLE ${table} ADD COLUMN group_reference VARCHAR(32) NULL`);
       }
     }
 
@@ -359,62 +382,61 @@ export async function removeScheduleDate(date: string) {
   }
 }
 
+
 export async function createBookingRequest(input: BookingInput) {
   await initializeDatabase();
-  const db = getPool();
-  const connection = await db.getConnection();
-  const id = crypto.randomUUID();
-  const reference = `LTW-${id.slice(0, 8).toUpperCase()}`;
+  const connection = await getPool().getConnection();
+  const results: Array<{ reference: string; waitlisted: boolean }> = [];
 
   try {
     await connection.beginTransaction();
-    const [duplicateRows] = await connection.execute<ReferenceRow[]>(
-      `SELECT reference FROM booking_requests
-       WHERE shift_id = ? AND phone = ?
-         AND status IN ('pending', 'confirmed')
-       LIMIT 1 FOR UPDATE`,
-      [input.shiftId, input.phone],
-    );
-    if (duplicateRows[0]) {
-      throw new Error("This phone number already has a request for that shift.");
-    }
+    for (const person of input.people) {
+      const shiftId = person.shiftId;
+        const [duplicateRows] = await connection.execute<ReferenceRow[]>(
+          `SELECT reference FROM booking_requests
+           WHERE shift_id = ? AND phone = ? AND (group_reference IS NULL OR group_reference <> ?) AND status IN ('pending', 'confirmed')
+           LIMIT 1 FOR UPDATE`,
+          [shiftId, person.phone, input.groupReference],
+        );
+        if (duplicateRows[0]) {
+          throw new Error("One of these phone numbers already has a request for a selected shift.");
+        }
 
-    const [shiftRows] = await connection.execute<ShiftRow[]>(
-      "SELECT capacity FROM shifts WHERE id = ? AND active = TRUE FOR UPDATE",
-      [input.shiftId],
-    );
-    if (!shiftRows[0]) {
-      throw new Error("That shift is not available.");
-    }
+        const [shiftRows] = await connection.execute<ShiftRow[]>(
+          "SELECT capacity FROM shifts WHERE id = ? AND active = TRUE FOR UPDATE",
+          [shiftId],
+        );
+        if (!shiftRows[0]) throw new Error("One of the selected shifts is not available.");
 
-    const [reservedRows] = await connection.execute<RowDataPacket[]>(
-      `SELECT COUNT(*) AS count FROM booking_requests
-       WHERE shift_id = ? AND status IN ('pending', 'confirmed')`,
-      [input.shiftId],
-    );
-    const reserved = Number(reservedRows[0].count);
-
-    if (reserved < shiftRows[0].capacity) {
-      await connection.execute(
-        `INSERT INTO booking_requests
-          (id, reference, shift_id, full_name, phone, organization, leader_contact, leader_name, leader_phone)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, reference, input.shiftId, input.fullName, input.phone, input.organization, input.leaderName, input.leaderName, input.leaderPhone || null],
-      );
-      await connection.commit();
-      return { reference, status: "pending", waitlisted: false };
-    }
-
-    const waitlistId = crypto.randomUUID();
-    const waitlistReference = `WAIT-${waitlistId.slice(0, 8).toUpperCase()}`;
-    await connection.execute(
-      `INSERT INTO waitlist_entries
-        (id, reference, shift_id, full_name, phone, organization, leader_contact, leader_name, leader_phone)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [waitlistId, waitlistReference, input.shiftId, input.fullName, input.phone, input.organization, input.leaderName, input.leaderName, input.leaderPhone || null],
-    );
+        const [reservedRows] = await connection.execute<RowDataPacket[]>(
+          `SELECT COUNT(*) AS count FROM booking_requests
+           WHERE shift_id = ? AND status IN ('pending', 'confirmed')`,
+          [shiftId],
+        );
+        const id = crypto.randomUUID();
+        const reference = `LTW-${id.slice(0, 8).toUpperCase()}`;
+        if (Number(reservedRows[0].count) < shiftRows[0].capacity) {
+          await connection.execute(
+            `INSERT INTO booking_requests
+              (id, reference, group_reference, shift_id, stake_district, full_name, phone, organization)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, reference, input.groupReference, shiftId, person.stakeDistrict, person.fullName, person.phone, person.wardBranch],
+          );
+          results.push({ reference, waitlisted: false });
+        } else {
+          const waitlistId = crypto.randomUUID();
+          const waitlistReference = `WAIT-${waitlistId.slice(0, 8).toUpperCase()}`;
+          await connection.execute(
+            `INSERT INTO waitlist_entries
+              (id, reference, group_reference, shift_id, stake_district, full_name, phone, organization)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [waitlistId, waitlistReference, input.groupReference, shiftId, person.stakeDistrict, person.fullName, person.phone, person.wardBranch],
+          );
+          results.push({ reference: waitlistReference, waitlisted: true });
+        }
+      }
     await connection.commit();
-    return { reference: waitlistReference, status: "waiting", waitlisted: true };
+    return { groupReference: input.groupReference, results, waitlisted: results.some((result) => result.waitlisted) };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -423,21 +445,22 @@ export async function createBookingRequest(input: BookingInput) {
   }
 }
 
+
 export async function getAdminRequests() {
   await initializeDatabase();
   const [rows] = await getPool().query<AdminRequestRow[] & RowDataPacket[]>(`
     SELECT
       b.reference,
+      b.group_reference AS groupReference,
       b.shift_id AS shiftId,
       DATE_FORMAT(s.service_date, '%Y-%m-%d') AS date,
       s.label AS shiftLabel,
       TIME_FORMAT(s.start_time, '%H:%i') AS startTime,
       TIME_FORMAT(s.end_time, '%H:%i') AS endTime,
+      b.stake_district AS stakeDistrict,
       b.full_name AS fullName,
       b.phone,
       b.organization,
-      COALESCE(b.leader_name, b.leader_contact) AS leaderName,
-      COALESCE(b.leader_phone, '') AS leaderPhone,
       b.status,
       DATE_FORMAT(b.created_at, '%Y-%m-%dT%H:%i:%sZ') AS createdAt
     FROM booking_requests b
@@ -447,6 +470,14 @@ export async function getAdminRequests() {
   `);
 
   return rows;
+}
+
+export async function getAdminOverview() {
+  const [schedule, requests] = await Promise.all([
+    getAdminSchedule(),
+    getAdminRequests(),
+  ]);
+  return { schedule, requests };
 }
 
 export async function updateBookingStatus(
@@ -470,11 +501,10 @@ export async function editBookingRequest(
   reference: string,
   input: {
     shiftId: string;
+    stakeDistrict: string;
     fullName: string;
     phone: string;
     organization: string;
-    leaderName: string;
-    leaderPhone: string;
   },
 ) {
   await initializeDatabase();
@@ -518,17 +548,14 @@ export async function editBookingRequest(
 
     const [result] = await connection.execute<ResultSetHeader>(
       `UPDATE booking_requests
-       SET shift_id = ?, full_name = ?, phone = ?, organization = ?,
-           leader_name = ?, leader_phone = ?, leader_contact = ?
+       SET shift_id = ?, stake_district = ?, full_name = ?, phone = ?, organization = ?
        WHERE id = ?`,
       [
         input.shiftId,
+        input.stakeDistrict,
         input.fullName,
         input.phone,
         input.organization,
-        input.leaderName,
-        input.leaderPhone || null,
-        input.leaderName,
         booking.id,
       ],
     );
@@ -559,16 +586,16 @@ export async function getAdminWaitlist() {
   const [rows] = await getPool().query<WaitlistRow[] & RowDataPacket[]>(`
     SELECT
       w.reference,
+      w.group_reference AS groupReference,
       w.shift_id AS shiftId,
       DATE_FORMAT(s.service_date, '%Y-%m-%d') AS date,
       s.label AS shiftLabel,
       TIME_FORMAT(s.start_time, '%H:%i') AS startTime,
       TIME_FORMAT(s.end_time, '%H:%i') AS endTime,
+      w.stake_district AS stakeDistrict,
       w.full_name AS fullName,
       w.phone,
       w.organization,
-      COALESCE(w.leader_name, w.leader_contact) AS leaderName,
-      COALESCE(w.leader_phone, '') AS leaderPhone,
       DATE_FORMAT(w.created_at, '%Y-%m-%dT%H:%i:%sZ') AS createdAt
     FROM waitlist_entries w
     INNER JOIN shifts s ON s.id = w.shift_id
@@ -608,11 +635,10 @@ export async function promoteWaitlistEntry(reference: string) {
     const bookingReference = `LTW-${id.slice(0, 8).toUpperCase()}`;
     await connection.execute(
       `INSERT INTO booking_requests
-        (id, reference, shift_id, full_name, phone, organization, leader_contact, leader_name, leader_phone)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, bookingReference, waitlist.shift_id, waitlist.full_name, waitlist.phone,
-        waitlist.organization, waitlist.leader_name ?? waitlist.leader_contact,
-        waitlist.leader_name ?? waitlist.leader_contact, waitlist.leader_phone || null],
+        (id, reference, group_reference, shift_id, stake_district, full_name, phone, organization)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, bookingReference, waitlist.group_reference, waitlist.shift_id, waitlist.stake_district,
+        waitlist.full_name, waitlist.phone, waitlist.organization],
     );
     await connection.execute(
       "UPDATE waitlist_entries SET status = 'promoted' WHERE reference = ?",
