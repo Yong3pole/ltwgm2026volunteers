@@ -122,6 +122,22 @@ export default function Home() {
       .catch(() => setError("Live availability is not connected yet. Please try again shortly."));
   }, []);
 
+  useEffect(() => {
+    function handleBrowserBack() {
+      if (volunteerCount === 0) return;
+      setShiftPickerOpen(false);
+      setConfirmationOpen(false);
+      setError("");
+      setVolunteerCountInput(String(volunteerCount));
+      setVolunteerCount(0);
+      setParticipants([]);
+      setActiveParticipant(0);
+    }
+
+    window.addEventListener("popstate", handleBrowserBack);
+    return () => window.removeEventListener("popstate", handleBrowserBack);
+  }, [volunteerCount]);
+
   const availableDateKeys = useMemo(
     () => [...new Set(availability.map((item) => item.date))].sort(),
     [availability],
@@ -189,6 +205,9 @@ export default function Home() {
   }
 
   function beginForm(count: number) {
+    if (volunteerCount === 0) {
+      window.history.pushState({ bookingStep: "details" }, "", window.location.href);
+    }
     const people = Array.from({ length: count }, (_, index) => ({
       id: `person-${index + 1}`,
       stakeDistrict: "",
@@ -202,6 +221,20 @@ export default function Home() {
     setParticipants(people);
     setActiveParticipant(0);
     setSelectedDate(eventDates[0] ?? fallbackStart);
+  }
+
+  function changeVolunteerCount() {
+    if (window.history.state?.bookingStep === "details") {
+      window.history.back();
+      return;
+    }
+    setShiftPickerOpen(false);
+    setConfirmationOpen(false);
+    setError("");
+    setVolunteerCountInput(String(volunteerCount));
+    setVolunteerCount(0);
+    setParticipants([]);
+    setActiveParticipant(0);
   }
 
   function chooseParticipant(index: number) {
@@ -329,6 +362,9 @@ export default function Home() {
               {participants.map((person, index) => <button className={index === activeParticipant ? "status-tab status-tab--active" : "status-tab"} key={person.id} onClick={() => chooseParticipant(index)} type="button">Volunteer {index + 1}</button>)}
             </div>
             <p style={{ fontSize: "16px" }}>Enter details, date, and shift.</p>
+            <button className="change-volunteer-count" onClick={changeVolunteerCount} type="button">
+              ← Change number of volunteers
+            </button>
           </div>
           <form onSubmit={(event) => event.preventDefault()}>
               {currentParticipant && (

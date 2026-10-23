@@ -14,6 +14,9 @@
 .booking-panel .eyebrow--dark { color: var(--red); }
 .participant-focus { background: #fff7f0; border-bottom: 1px solid var(--line); margin: -31px -31px 23px; padding: 25px 31px 20px; }
 .participant-focus .volunteer-tabs { margin: 15px 0 16px; }
+.change-volunteer-count { background: transparent; border: 0; color: var(--red); font-size: 12px; padding: 0; text-align: left; }
+.change-volunteer-count:hover { text-decoration: underline; }
+.change-volunteer-count:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
 .panel-top { border-bottom: 1px solid var(--line); margin-bottom: 23px; padding-bottom: 20px; }
 .panel-top h2 { font-size: 27px; margin-bottom: 9px; }
 .panel-top p:last-child { color: var(--muted); font-size: 14px; line-height: 1.55; margin-bottom: 0; }
