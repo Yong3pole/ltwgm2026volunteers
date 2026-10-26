@@ -68,7 +68,7 @@ export async function PATCH(request: Request) {
     return Response.json({ updated: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (message.includes("already full") || message.includes("already has a request")) {
+    if (message.includes("already full")) {
       return Response.json({ error: message }, { status: 409 });
     }
     console.error("Unable to update booking request", error);

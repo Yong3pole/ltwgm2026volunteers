@@ -56,11 +56,6 @@ export async function POST(request: Request) {
     const result = await createBookingRequest({ people, groupReference });
     return Response.json(result, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    if (message.includes("already has a request")) {
-      return Response.json({ error: message }, { status: 409 });
-    }
-
     console.error("Unable to create booking request", error);
     return Response.json(
       { error: "We could not save your request. Please try again." },

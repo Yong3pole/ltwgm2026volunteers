@@ -54,6 +54,8 @@ export default function AdminPage() {
   const [dateFilter, setDateFilter] = useState("");
   const [shiftFilter, setShiftFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [pageSize, setPageSize] = useState(20);
+  const [currentPage, setCurrentPage] = useState(1);
   const [calendarMonth, setCalendarMonth] = useState(new Date(2026, 10, 1, 12));
   const [editing, setEditing] = useState<RequestRow | null>(null);
   const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
@@ -124,6 +126,7 @@ export default function AdminPage() {
     await fetch("/api/admin/logout", { method: "POST" }); setAuthenticated(false);
   }
   function clearFilters() {
+    setCurrentPage(1);
     setTab("all");
     setDateFilter("");
     setShiftFilter("");
@@ -150,6 +153,12 @@ export default function AdminPage() {
       (!shiftFilter || request.shiftId === shiftFilter) &&
       (!search || `${request.fullName} ${request.phone} ${request.reference} ${request.organization} ${request.stakeDistrict}`.toLowerCase().includes(search.toLowerCase())))
     .sort((a, b) => `${a.date}-${a.createdAt}`.localeCompare(`${b.date}-${b.createdAt}`)), [allRows, tab, dateFilter, shiftFilter, search]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visiblePage = Math.min(currentPage, pageCount);
+  const pageRows = filtered.slice((visiblePage - 1) * pageSize, visiblePage * pageSize);
+  const firstVisibleRow = filtered.length === 0 ? 0 : (visiblePage - 1) * pageSize + 1;
+  const lastVisibleRow = Math.min(visiblePage * pageSize, filtered.length);
+
   const availableShifts = useMemo(() => [...new Set(allRows.map((request) => request.shiftId))], [allRows]);
   const scheduleDates = useMemo(() => [...new Set(schedule.map((row) => row.date))].sort(), [schedule]);
   const counts = { pending: requests.filter((r) => r.status === "pending").length, confirmed: requests.filter((r) => r.status === "confirmed").length };
@@ -171,25 +180,38 @@ export default function AdminPage() {
   );
 
   return <main className="admin-page"><div className="shell admin-dashboard">
-    <header className="admin-header"><div><p className="eyebrow eyebrow--dark">Light The World · Admin</p><h1>Volunteer bookings</h1></div><div className="admin-header-actions"><a className="button button--secondary" href="/admin/overview" target="_blank" rel="noopener">View schedule ↗</a><button className="button button--secondary admin-logout" onClick={logout} type="button">Sign out</button></div></header>
+    <header className="admin-header"><div><p className="eyebrow eyebrow--dark">Light The World · Admin</p><h1>Volunteer bookings</h1></div><div className="admin-header-actions"><a className="button button--secondary admin-logout" href="/admin/overview" target="_blank" rel="noopener">View schedule ↗</a><button className="button button--secondary admin-logout" onClick={logout} type="button">Sign out</button></div></header>
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="admin-stats"><div><strong>{counts.pending}</strong><span>Pending review</span></div><div><strong>{counts.confirmed}</strong><span>Confirmed</span></div><div><strong>{waitlist.length}</strong><span>Waitlisted</span></div></div>
     <div className="admin-content-layout"><AdminNav /><div className="admin-layout">
       <aside className="admin-calendar">
         <div className="admin-calendar__header"><button className="calendar__nav" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1, 12))} type="button">‹</button><strong>{monthLabel}</strong><button className="calendar__nav" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1, 12))} type="button">›</button></div>
         <div className="calendar__weekdays">{["S", "M", "T", "W", "T", "F", "S"].map((day, i) => <span key={`${day}-${i}`}>{day}</span>)}</div>
-        <div className="calendar__grid">{calendarDays(calendarMonth).map((day, i) => day === null ? <span className="calendar__empty" key={`empty-${i}`} /> : <button className={`calendar__day${dateFilter === keyFor(calendarMonth, day) ? " calendar__day--selected" : ""}`} key={keyFor(calendarMonth, day)} onClick={() => setDateFilter(dateFilter === keyFor(calendarMonth, day) ? "" : keyFor(calendarMonth, day))} type="button">{day}{allRows.some((request) => request.date.slice(0, 10) === keyFor(calendarMonth, day)) && <i />}</button>)}</div>
+        <div className="calendar__grid">{calendarDays(calendarMonth).map((day, i) => day === null ? <span className="calendar__empty" key={`empty-${i}`} /> : <button className={`calendar__day${dateFilter === keyFor(calendarMonth, day) ? " calendar__day--selected" : ""}`} key={keyFor(calendarMonth, day)} onClick={() => { setCurrentPage(1); setDateFilter(dateFilter === keyFor(calendarMonth, day) ? "" : keyFor(calendarMonth, day)); }} type="button">{day}{allRows.some((request) => request.date.slice(0, 10) === keyFor(calendarMonth, day)) && <i />}</button>)}</div>
         {dateFilter && <button className="clear-filter" onClick={clearFilters} type="button">Clear all filters</button>}
       </aside>
       <section className="admin-table-wrap">
         <div className="admin-table-heading"><div><h2>All volunteer requests</h2><p>{filtered.length} result{filtered.length === 1 ? "" : "s"}{dateFilter ? ` on ${formatDate(dateFilter)}` : ""}</p></div><button className="refresh-button" onClick={() => loadRequests()} type="button">Refresh ↻</button></div>
-        <div className="status-tabs">{statusTabs.map((item) => <button className={tab === item.id ? "status-tab status-tab--active" : "status-tab"} key={item.id} onClick={() => setTab(item.id)} type="button">{item.label} <span>{item.id === "all" ? filterableRows.length : filterableRows.filter((r) => r.status === item.id).length}</span></button>)}</div>
+        <div className="status-tabs">{statusTabs.map((item) => <button className={tab === item.id ? "status-tab status-tab--active" : "status-tab"} key={item.id} onClick={() => { setCurrentPage(1); setTab(item.id); }} type="button">{item.label} <span>{item.id === "all" ? filterableRows.length : filterableRows.filter((r) => r.status === item.id).length}</span></button>)}</div>
         <div className="admin-filters">
-          <label>Search<input value={search} placeholder="Name, phone, reference, ward, or stake" onChange={(event) => setSearch(event.target.value)} /></label>
-          <label>Shift<select value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)}><option value="">All shifts</option>{availableShifts.sort().map((shift) => <option key={shift} value={shift}>{shift.endsWith("-day") ? "Day shift" : "Evening shift"} · {formatDate(shift.slice(0, 10))}</option>)}</select></label>
+          <label>Search<input value={search} placeholder="Name, phone, reference, ward, or stake" onChange={(event) => { setCurrentPage(1); setSearch(event.target.value); }} /></label>
+          <label>Shift<select value={shiftFilter} onChange={(event) => { setCurrentPage(1); setShiftFilter(event.target.value); }}><option value="">All shifts</option>{availableShifts.sort().map((shift) => <option key={shift} value={shift}>{shift.endsWith("-day") ? "Day shift" : "Evening shift"} · {formatDate(shift.slice(0, 10))}</option>)}</select></label>
           {(search || dateFilter || shiftFilter || tab !== "all") && <button className="clear-filter admin-clear-filters" onClick={clearFilters} type="button">Clear all filters</button>}
         </div>
-        {filtered.length === 0 ? <p className="empty-state">No requests match these filters.</p> : <div className="admin-table-scroll"><table className="admin-bookings-table"><thead><tr><th>Volunteer</th><th>Schedule</th><th>Contact</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filtered.map((request) => <tr key={request.reference}><td data-label="Volunteer"><strong>{request.fullName}</strong><small>{request.reference}</small><small>Group: {request.groupReference}</small><small>{request.organization}</small></td><td data-label="Schedule"><strong>{formatDate(request.date)}</strong><small>{request.shiftLabel} · {formatTime12(request.startTime)}–{formatTime12(request.endTime)}</small></td><td data-label="Contact">
+        {filtered.length > 0 && <nav className="admin-pagination" aria-label="Booking results pagination">
+          <label className="admin-pagination__size">Rows per page
+            <select value={pageSize} onChange={(event) => { setCurrentPage(1); setPageSize(Number(event.target.value)); }}>
+              {[10, 20, 50].map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </label>
+          <span className="admin-pagination__summary">Showing {firstVisibleRow}–{lastVisibleRow} of {filtered.length}</span>
+          <div className="admin-pagination__buttons">
+            <button disabled={visiblePage <= 1} onClick={() => setCurrentPage(visiblePage - 1)} type="button">Previous</button>
+            <span>Page {visiblePage} of {pageCount}</span>
+            <button disabled={visiblePage >= pageCount} onClick={() => setCurrentPage(visiblePage + 1)} type="button">Next</button>
+          </div>
+        </nav>}
+        {filtered.length === 0 ? <p className="empty-state">No requests match these filters.</p> : <div className="admin-table-scroll"><table className="admin-bookings-table"><thead><tr><th>Volunteer</th><th>Schedule</th><th>Contact</th><th>Status</th><th>Actions</th></tr></thead><tbody>{pageRows.map((request) => <tr key={request.reference}><td data-label="Volunteer"><strong>{request.fullName}</strong><small>{request.reference}</small><small>Group: {request.groupReference}</small><small>{request.organization}</small></td><td data-label="Schedule"><strong>{formatDate(request.date)}</strong><small>{request.shiftLabel} · {formatTime12(request.startTime)}–{formatTime12(request.endTime)}</small></td><td data-label="Contact">
           <small>{request.phone}</small>
           <small>Stake / District: {request.stakeDistrict}</small>
         </td><td data-label="Status"><span className={`status status--${request.status}`}>{request.status === "rejected" ? "denied" : request.status}</span></td><td data-label="Actions"><div className="table-actions">{request.status === "pending" && <><button className="action-confirm" onClick={() => changeStatus(request.reference, "confirmed")} type="button">Confirm</button><button className="action-reject" onClick={() => changeStatus(request.reference, "rejected")} type="button">Deny</button></>}{request.status === "waitlisted" && <><button className="action-confirm" onClick={() => promoteWaitlist(request.reference)} type="button">Promote</button><button className="action-delete" onClick={() => removeWaitlist(request.reference)} type="button">Remove</button></>}{request.status !== "waitlisted" && <><button className="action-edit" onClick={() => setEditing(request)} type="button">Edit</button><button className="action-delete" onClick={() => deleteRequest(request.reference)} type="button">Delete</button></>}</div></td></tr>)}</tbody></table></div>}
