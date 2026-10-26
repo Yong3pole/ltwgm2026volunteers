@@ -58,6 +58,7 @@ h1, h2, h3, p { margin-top: 0; }
 h1 { font-family: Georgia, serif; font-size: clamp(43px, 6vw, 71px); font-weight: 400; letter-spacing: -.045em; line-height: .98; margin-bottom: 26px; }
 h1 em { color: var(--gold); font-style: normal; }
 .hero__intro { color: var(--rose); font-size: 16px; line-height: 1.65; max-width: 510px; }
+.hero__actions { display: flex; flex-wrap: wrap; column-gap: 16px; row-gap: 12px; margin-bottom: 26px; }
 .hero__overview-link {
   align-items: center;
   background: var(--gold);
@@ -69,7 +70,7 @@ h1 em { color: var(--gold); font-style: normal; }
   font-weight: 700;
   gap: 16px;
   letter-spacing: .03em;
-  margin: 0 0 26px;
+  margin: 0;
   min-height: 44px;
   padding: 0 15px;
   text-decoration: none;

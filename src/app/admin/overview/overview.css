@@ -46,10 +46,10 @@
 .overview-sheet__bar { align-items: center; background: var(--deep-red); color: var(--white); display: flex; justify-content: space-between; padding: 15px 18px; }
 .overview-sheet__bar strong { font-family: Georgia, serif; font-size: 18px; font-weight: 400; }
 .overview-sheet__bar span { color: #f8d9de; font-size: 10px; }
-.overview-sheet__scroll { overflow-x: auto; }
-.overview-grid { border-collapse: collapse; min-width: 1120px; table-layout: fixed; width: 100%; }
+.overview-sheet__scroll { max-height: min(72vh, 900px); overflow: auto; position: relative; }
+.overview-grid { border-collapse: separate; border-spacing: 0; min-width: 1120px; table-layout: fixed; width: 100%; }
 .overview-grid th, .overview-grid td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 11px 12px; text-align: left; vertical-align: top; }
-.overview-grid thead th { background: #f3e7d9; color: var(--deep-red); font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
+.overview-grid thead th { background: #f3e7d9; color: var(--deep-red); font-size: 9px; letter-spacing: .09em; position: sticky; text-transform: uppercase; top: 0; z-index: 3; }
 .overview-grid thead th:nth-child(1) { width: 175px; }
 .overview-grid thead th:nth-child(2) { width: 210px; }
 .overview-grid thead th:nth-child(n+3) { width: 245px; }
@@ -82,4 +82,6 @@
   .overview-page { padding: 0; }
   .overview-actions { display: none; }
   .overview-sheet { box-shadow: none; }
+  .overview-sheet__scroll { max-height: none; overflow: visible; }
+  .overview-grid thead th { position: static; }
 }
