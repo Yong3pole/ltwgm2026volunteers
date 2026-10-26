@@ -22,6 +22,7 @@ export default function SchedulePage() {
   const [error, setError] = useState("");
   const [authenticated, setAuthenticated] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   async function loadSchedule() {
     const response = await fetch("/api/admin/schedule");
@@ -65,12 +66,25 @@ export default function SchedulePage() {
     if (!response.ok) { setError(result.error ?? "Unable to remove schedule."); return; }
     await loadSchedule();
   }
+  async function logout() {
+    setError("");
+    setLoggingOut(true);
+    try {
+      const response = await fetch("/api/admin/logout", { method: "POST" });
+      if (!response.ok) throw new Error("Unable to sign out. Please try again.");
+      setAuthenticated(false);
+    } catch (logoutError) {
+      setError(logoutError instanceof Error ? logoutError.message : "Unable to sign out. Please try again.");
+    } finally {
+      setLoggingOut(false);
+    }
+  }
 
   const dates = useMemo(() => [...new Set(schedule.map((row) => row.date))].sort(), [schedule]);
   if (!authenticated) return <main className="admin-page"><section className="admin-login"><p className="eyebrow eyebrow--dark">Light The World · Admin</p><h1>Sign in required</h1><p>Please sign in from the bookings page before opening schedule management.</p><Link className="button" href="/admin">Go to admin sign in <span>→</span></Link></section></main>;
 
   return <main className="admin-page"><div className="shell admin-dashboard">
-    <header className="admin-header"><div><p className="eyebrow eyebrow--dark">Light The World · Admin</p><h1>Manage schedule</h1></div><Link className="button button--secondary admin-logout" href="/admin">Manage bookings</Link></header>
+    <header className="admin-header"><div><p className="eyebrow eyebrow--dark">Light The World · Admin</p><h1>Manage schedule</h1></div><div className="admin-header-actions"><Link className="button button--secondary admin-logout" href="/admin">Manage bookings</Link><button className="button button--secondary admin-logout" disabled={loggingOut} onClick={logout} type="button">{loggingOut ? "Signing out…" : "Sign out"}</button></div></header>
     <div className="admin-content-layout"><AdminNav /><section className="schedule-manager schedule-manager-page">
       <div className="schedule-manager__header"><div><p className="eyebrow eyebrow--dark">Schedule management</p><h2>Event dates and shifts</h2><p>Add dates, adjust shift times, or copy a schedule. Dates with active requests cannot be removed.</p></div>
         <form className="schedule-add" onSubmit={addSchedule}><label>Add date<input name="date" type="date" required /></label><label>Copy from<select name="sourceDate"><option value="">Default shifts</option>{dates.map((date) => <option key={date} value={date}>{formatDate(date)}</option>)}</select></label><button className="button" type="submit">Add date</button></form>

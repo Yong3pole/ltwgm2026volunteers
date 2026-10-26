@@ -26,7 +26,6 @@ type BookingInput = {
 };
 
 type ShiftRow = RowDataPacket & { capacity: number };
-type ReferenceRow = RowDataPacket & { reference: string };
 type AdminRequestRow = RowDataPacket & {
   reference: string;
   groupReference: string;
@@ -392,27 +391,17 @@ export async function createBookingRequest(input: BookingInput) {
     await connection.beginTransaction();
     for (const person of input.people) {
       const shiftId = person.shiftId;
-        const [duplicateRows] = await connection.execute<ReferenceRow[]>(
-          `SELECT reference FROM booking_requests
-           WHERE shift_id = ? AND phone = ? AND (group_reference IS NULL OR group_reference <> ?) AND status IN ('pending', 'confirmed')
-           LIMIT 1 FOR UPDATE`,
-          [shiftId, person.phone, input.groupReference],
-        );
-        if (duplicateRows[0]) {
-          throw new Error("One of these phone numbers already has a request for a selected shift.");
-        }
+      const [shiftRows] = await connection.execute<ShiftRow[]>(
+        "SELECT capacity FROM shifts WHERE id = ? AND active = TRUE FOR UPDATE",
+        [shiftId],
+      );
+      if (!shiftRows[0]) throw new Error("One of the selected shifts is not available.");
 
-        const [shiftRows] = await connection.execute<ShiftRow[]>(
-          "SELECT capacity FROM shifts WHERE id = ? AND active = TRUE FOR UPDATE",
-          [shiftId],
-        );
-        if (!shiftRows[0]) throw new Error("One of the selected shifts is not available.");
-
-        const [reservedRows] = await connection.execute<RowDataPacket[]>(
-          `SELECT COUNT(*) AS count FROM booking_requests
-           WHERE shift_id = ? AND status IN ('pending', 'confirmed')`,
-          [shiftId],
-        );
+      const [reservedRows] = await connection.execute<RowDataPacket[]>(
+        `SELECT COUNT(*) AS count FROM booking_requests
+         WHERE shift_id = ? AND status IN ('pending', 'confirmed')`,
+        [shiftId],
+      );
         const id = crypto.randomUUID();
         const reference = `LTW-${id.slice(0, 8).toUpperCase()}`;
         if (Number(reservedRows[0].count) < shiftRows[0].capacity) {
@@ -473,11 +462,12 @@ export async function getAdminRequests() {
 }
 
 export async function getAdminOverview() {
-  const [schedule, requests] = await Promise.all([
+  const [schedule, requests, waitlist] = await Promise.all([
     getAdminSchedule(),
     getAdminRequests(),
+    getAdminWaitlist(),
   ]);
-  return { schedule, requests };
+  return { schedule, requests, waitlist };
 }
 
 export async function updateBookingStatus(
@@ -525,17 +515,6 @@ export async function editBookingRequest(
       [input.shiftId],
     );
     if (!shiftRows[0]) throw new Error("That shift is not available.");
-
-    const [duplicateRows] = await connection.execute<RowDataPacket[]>(
-      `SELECT id FROM booking_requests
-       WHERE shift_id = ? AND phone = ? AND id <> ?
-         AND status IN ('pending', 'confirmed')
-       LIMIT 1`,
-      [input.shiftId, input.phone, booking.id],
-    );
-    if (duplicateRows[0]) {
-      throw new Error("This phone number already has a request for that shift.");
-    }
 
     const [reservedRows] = await connection.execute<RowDataPacket[]>(
       `SELECT COUNT(*) AS count FROM booking_requests

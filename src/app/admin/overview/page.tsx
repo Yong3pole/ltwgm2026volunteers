@@ -20,6 +20,23 @@ type RequestRow = {
   organization: string;
   status: "pending" | "confirmed" | "rejected" | "cancelled";
 };
+type WaitlistRow = Omit<RequestRow, "reference" | "status">;
+
+function VolunteerList({ volunteers, queue = false }: { volunteers: RequestRow[] | WaitlistRow[]; queue?: boolean }) {
+  if (volunteers.length === 0) return <span className="overview-grid__empty">—</span>;
+
+  return (
+    <div className="overview-grid__people">
+      {volunteers.map((volunteer, index) => (
+        <article className="overview-person" key={`${volunteer.fullName}-${volunteer.phone}-${index}`}>
+          <strong>{queue && <span className="overview-person__queue">#{index + 1} </span>}{volunteer.fullName}</strong>
+          <small>{volunteer.stakeDistrict} · {volunteer.organization}</small>
+          <small>{volunteer.phone}</small>
+        </article>
+      ))}
+    </div>
+  );
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-US", {
@@ -39,6 +56,7 @@ function formatTime(value: string) {
 export default function AdminOverviewPage() {
   const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
   const [requests, setRequests] = useState<RequestRow[]>([]);
+  const [waitlist, setWaitlist] = useState<WaitlistRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -48,11 +66,13 @@ export default function AdminOverviewPage() {
         const data = await response.json() as {
           schedule?: ScheduleRow[];
           requests?: RequestRow[];
+          waitlist?: WaitlistRow[];
           error?: string;
         };
         if (!response.ok) throw new Error(data.error ?? "Unable to load the overview.");
         setSchedule(data.schedule ?? []);
         setRequests(data.requests ?? []);
+        setWaitlist(data.waitlist ?? []);
       })
       .catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "Unable to load the overview.");
@@ -61,11 +81,6 @@ export default function AdminOverviewPage() {
   }, []);
 
   const dates = useMemo(() => [...new Set(schedule.map((row) => row.date))], [schedule]);
-  const maxCapacity = useMemo(
-    () => Math.max(...schedule.map((shift) => shift.capacity), 1),
-    [schedule],
-  );
-
   if (loading) {
     return <main className="admin-page overview-page"><div className="shell overview-container"><p className="empty-state">Loading schedule overview…</p></div></main>;
   }
@@ -88,7 +103,7 @@ export default function AdminOverviewPage() {
           <div>
             <p className="eyebrow eyebrow--dark">Light The World · Admin</p>
             <h1 className="overview-title">Schedule overview</h1>
-            <p className="overview-intro">A quick view of every date, shift, and available slot.</p>
+            <p className="overview-intro">See confirmed volunteers, requests awaiting review, and the waitlist for each shift.</p>
           </div>
           <div className="overview-actions">
             <button className="button button--secondary overview-action" onClick={() => window.print()} type="button">Print overview</button>
@@ -107,7 +122,9 @@ export default function AdminOverviewPage() {
                 <tr>
                   <th>Date</th>
                   <th>Shift &amp; time</th>
-                  {Array.from({ length: maxCapacity }, (_, index) => <th key={index}>Slot {index + 1}</th>)}
+                  <th>Confirmed</th>
+                  <th>Pending review</th>
+                  <th>Waitlist</th>
                 </tr>
               </thead>
               <tbody>
@@ -118,33 +135,21 @@ export default function AdminOverviewPage() {
                       request.shiftId === shift.shiftId &&
                       (request.status === "pending" || request.status === "confirmed")
                     );
+                    const confirmed = bookings.filter((request) => request.status === "confirmed");
+                    const pending = bookings.filter((request) => request.status === "pending");
+                    const queued = waitlist.filter((request) => request.shiftId === shift.shiftId);
+                    const reserved = confirmed.length + pending.length;
                     return (
                       <tr className={shiftIndex === 0 ? "overview-grid__first-row" : ""} key={shift.shiftId}>
                         <th className="overview-grid__date">{shiftIndex === 0 ? formatDate(date) : ""}</th>
-                        <th className="overview-grid__shift">{shift.label}<span className="overview-grid__time">{formatTime(shift.startTime)} – {formatTime(shift.endTime)}</span></th>
-                          {Array.from({ length: shift.capacity }, (_, index) => {
-                            const booking = bookings[index];
-                            return (
-                              <td className={`overview-grid__slot ${booking ? `overview-grid__slot--${booking.status}` : "overview-grid__slot--open"}`} key={booking?.reference ?? `${shift.shiftId}-open-${index}`}>
-                                {booking ? (
-                                  <span className="overview-grid__details">
-                                    <strong>{booking.fullName}</strong>
-                                    <span className="overview-grid__status">{booking.status}</span>
-                                    <small>{booking.stakeDistrict} · {booking.organization}</small>
-                                    <small>{booking.phone}</small>
-                                  </span>
-                                ) : (
-                                  <span className="overview-grid__details">
-                                    <strong>OPEN</strong>
-                                    <small>Available</small>
-                                  </span>
-                                )}
-                              </td>
-                            );
-                          })}
-                          {Array.from({ length: maxCapacity - shift.capacity }, (_, index) => (
-                            <td className="overview-grid__slot overview-grid__slot--unused" key={`${shift.shiftId}-unused-${index}`}>—</td>
-                          ))}
+                        <th className="overview-grid__shift">
+                          {shift.label}
+                          <span className="overview-grid__time">{formatTime(shift.startTime)} – {formatTime(shift.endTime)}</span>
+                          <span className="overview-grid__capacity">{reserved} of {shift.capacity} spots reserved · {Math.max(shift.capacity - reserved, 0)} open</span>
+                        </th>
+                        <td className="overview-grid__group overview-grid__group--confirmed"><VolunteerList volunteers={confirmed} /></td>
+                        <td className="overview-grid__group overview-grid__group--pending"><VolunteerList volunteers={pending} /></td>
+                        <td className="overview-grid__group overview-grid__group--waitlist"><VolunteerList volunteers={queued} queue /></td>
                       </tr>
                     );
                   });

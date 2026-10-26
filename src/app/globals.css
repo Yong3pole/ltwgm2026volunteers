@@ -205,8 +205,9 @@ input::placeholder { color: #b9aaad; }
 .clear-filter { background: #fff1f3; border: 0; color: var(--red); font-size: 10px; margin-top: 15px; padding: 8px; width: 100%; }
 .admin-header { align-items: flex-end; display: flex; justify-content: space-between; margin-bottom: 35px; }
 .admin-header-actions { align-items: center; display: flex; gap: 10px; }
+.admin-header-actions .button { margin-top: 0; white-space: nowrap; }
 .admin-header h1 { margin: 0; }
-.admin-logout { justify-content: center; padding: 11px 17px; width: auto; }
+.admin-logout { flex: 0 0 auto; justify-content: center; padding: 11px 17px; white-space: nowrap; width: auto; }
 .admin-stats { display: grid; gap: 12px; grid-template-columns: repeat(3, 1fr); margin-bottom: 24px; }
 .admin-stats div { background: var(--paper); border: 1px solid var(--line); padding: 20px; }
 .admin-stats strong, .admin-stats span { display: block; }
@@ -266,6 +267,14 @@ input::placeholder { color: #b9aaad; }
 .admin-bookings-table td strong { font-size: 12px; margin-bottom: 5px; }
 .admin-bookings-table td small { color: var(--muted); font-size: 10px; line-height: 1.5; }
 .admin-bookings-table td small + small { margin-top: 2px; }
+.admin-pagination { align-items: center; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; padding: 14px 18px; }
+.admin-pagination__size { align-items: center; color: var(--muted); display: flex; font-size: 10px; gap: 8px; margin: 0; }
+.admin-pagination__size select { background: var(--white); border: 1px solid var(--line); color: var(--ink); display: inline-block; font-size: 11px; margin: 0; min-width: 66px; padding: 7px 24px 7px 9px; width: auto; }
+.admin-pagination__summary, .admin-pagination__buttons { color: var(--muted); font-size: 10px; }
+.admin-pagination__buttons { align-items: center; display: flex; gap: 8px; white-space: nowrap; }
+.admin-pagination__buttons span { min-width: 76px; text-align: center; }
+.admin-pagination__buttons button { background: var(--white); border: 1px solid var(--line); border-radius: 3px; color: var(--red); font-size: 10px; line-height: 1.2; min-height: 34px; padding: 8px 11px; white-space: nowrap; }
+.admin-pagination__buttons button:disabled { color: #b6a9a9; cursor: not-allowed; }
 .table-actions { display: flex; flex-wrap: wrap; gap: 5px; min-width: 112px; }
 .table-actions button { border: 0; font-size: 10px; padding: 7px 8px; }
 .action-edit { background: #f4e8e9; color: var(--red); }
@@ -376,7 +385,8 @@ input::placeholder { color: #b9aaad; }
   .shell { padding-left: 18px; padding-right: 18px; }
   .nav__admin { font-size: 10px; }
   .hero__content { padding-bottom: 48px; }
-  h1 { font-size: 48px; }
+  h1 { font-size: min(44px, 11.7vw); }
+  h1 em { white-space: nowrap; }
   .hero__details { align-items: flex-start; flex-direction: column; gap: 6px; }
   .dot { display: none; }
   .footer__inner { flex-direction: column; gap: 10px; }
@@ -422,4 +432,11 @@ input::placeholder { color: #b9aaad; }
   .admin-bookings-table td[data-label="Actions"] { border-top: 1px solid var(--line); margin-top: 5px; padding-left: 0; padding-top: 12px; }
   .admin-bookings-table td[data-label="Actions"]::before { display: none; }
   .table-actions { min-width: 0; }
+  .admin-pagination { align-items: center; display: grid; gap: 12px 8px; grid-template-columns: minmax(0, 1fr) auto; padding: 14px 16px; }
+  .admin-pagination__size { display: grid; gap: 6px; grid-template-columns: auto minmax(66px, 1fr); grid-column: 1 / -1; }
+  .admin-pagination__size select { min-width: 0; width: 100%; }
+  .admin-pagination__summary { grid-column: 1; grid-row: 2; }
+  .admin-pagination__buttons { grid-column: 2; grid-row: 2; gap: 5px; }
+  .admin-pagination__buttons span { min-width: 62px; }
+  .admin-pagination__buttons button { padding-left: 8px; padding-right: 8px; }
 }
