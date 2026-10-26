@@ -274,7 +274,7 @@ export default function Home() {
             <p className="eyebrow">Volunteer scheduling · Davao</p>
             <h1><em>#LightTheWorld</em><br />One Act at a Time</h1>
             <div className="hero__actions">
-              <Link className="hero__overview-link" href="#booking">Start a Request  ⤵</Link>
+              <button className="hero__overview-link" onClick={() => document.getElementById("booking")?.scrollIntoView({ behavior: "smooth" })} type="button">Start a Request ⤵</button>
               <Link className="hero__overview-link" href="/overview">View All Volunteers</Link>
             </div>
             <p className="hero__intro">
