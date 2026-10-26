@@ -273,7 +273,10 @@ export default function Home() {
           <div className="hero__copy">
             <p className="eyebrow">Volunteer scheduling · Davao</p>
             <h1><em>#LightTheWorld</em><br />One Act at a Time</h1>
-            <Link className="hero__overview-link" href="/overview">View All Volunteers <span>→</span></Link>
+            <div className="hero__actions">
+              <Link className="hero__overview-link" href="#booking">Start a Request  ⤵</Link>
+              <Link className="hero__overview-link" href="/overview">View All Volunteers</Link>
+            </div>
             <p className="hero__intro">
               Volunteer for the Light The World Giving Machines at{" "}
               <strong>Ayala Malls Abreeza, Davao City</strong>. Sign up for a shift between{" "}
@@ -289,7 +292,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="shell booking-layout">
+      <section className="shell booking-layout" id="booking">
         {volunteerCount === 0 ? (
           <div className="booking-panel">
             <div className="panel-top">
