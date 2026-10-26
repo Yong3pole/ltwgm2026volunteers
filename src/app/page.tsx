@@ -508,7 +508,7 @@ export default function Home() {
       <footer className="footer" id="admin">
         <div className="shell footer__inner">
           <span>Need help? <a href="mailto:davaocoordinatingcouncil@gmail.com">davaocoordinatingcouncil@gmail.com</a> · <a href="tel:09055501894">09055501894</a></span>
-          <span>Light The World Giving Machines · 2026–2027</span>
+          <span>Light The World Giving Machines · 2026</span>
         </div>
       </footer>
     </main>
