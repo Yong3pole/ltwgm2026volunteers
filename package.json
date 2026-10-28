@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "lucide-react": "^1.62.0",
     "mysql2": "^3.24.6",
     "next": "16.4.2",
     "react": "19.3.0",
