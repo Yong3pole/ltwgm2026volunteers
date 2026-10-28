@@ -1,8 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Menu, X } from "lucide-react";
 import Swal from "sweetalert2";
-import AdminNav from "./AdminNav";
 
 type Status = "pending" | "confirmed" | "rejected" | "cancelled" | "waitlisted";
 type RequestRow = {
@@ -58,6 +58,8 @@ export default function AdminPage() {
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [calendarMonth, setCalendarMonth] = useState(new Date(2026, 10, 1, 12));
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState<RequestRow | null>(null);
   const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
 
@@ -212,6 +214,11 @@ export default function AdminPage() {
     setShiftFilter("");
     setSearch("");
   }
+  function clearDateFilter() {
+    setCurrentPage(1);
+    setDateFilter("");
+    setCalendarOpen(false);
+  }
 
   const allRows = useMemo(() => [...requests, ...waitlist], [requests, waitlist]);
   const filterableRows = useMemo(
@@ -260,22 +267,25 @@ export default function AdminPage() {
   );
 
   return <main className="admin-page"><div className="shell admin-dashboard">
-    <header className="admin-header"><div><p className="eyebrow eyebrow--dark">Light The World · Admin</p><h1>Volunteer bookings</h1></div><div className="admin-header-actions"><a className="button button--secondary admin-logout" href="/admin/overview" target="_blank" rel="noopener">View schedule ↗</a><button className="button button--secondary admin-logout" onClick={logout} type="button">Sign out</button></div></header>
+    <header className="admin-header"><div><p className="eyebrow eyebrow--dark">Light The World · Admin</p><h1>Volunteer bookings</h1></div><button className="admin-menu-toggle" aria-expanded={menuOpen} aria-controls="admin-header-menu" aria-label={menuOpen ? "Close admin menu" : "Open admin menu"} onClick={() => setMenuOpen((open) => !open)} type="button">{menuOpen ? <X size={22} strokeWidth={1.8} /> : <Menu size={22} strokeWidth={1.8} />}</button><nav className={`admin-header-actions${menuOpen ? " admin-header-actions--open" : ""}`} id="admin-header-menu" aria-label="Admin sections"><a className="admin-nav__link admin-header-action admin-nav__link--active" href="/admin">Manage bookings</a><a className="admin-nav__link admin-header-action" href="/admin/schedule">Manage schedule</a><a className="admin-nav__link admin-header-action" href="/admin/overview" target="_blank" rel="noopener">View schedule</a><button className="admin-nav__link admin-header-action" onClick={logout} type="button">Sign out</button></nav></header>
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="admin-stats"><div><strong>{counts.pending}</strong><span>Pending review</span></div><div><strong>{counts.confirmed}</strong><span>Confirmed</span></div><div><strong>{waitlist.length}</strong><span>Waitlisted</span></div></div>
-    <div className="admin-content-layout"><AdminNav /><div className="admin-layout">
-      <aside className="admin-calendar">
-        <div className="admin-calendar__header"><button className="calendar__nav" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1, 12))} type="button">‹</button><strong>{monthLabel}</strong><button className="calendar__nav" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1, 12))} type="button">›</button></div>
-        <div className="calendar__weekdays">{["S", "M", "T", "W", "T", "F", "S"].map((day, i) => <span key={`${day}-${i}`}>{day}</span>)}</div>
-        <div className="calendar__grid">{calendarDays(calendarMonth).map((day, i) => day === null ? <span className="calendar__empty" key={`empty-${i}`} /> : <button className={`calendar__day${dateFilter === keyFor(calendarMonth, day) ? " calendar__day--selected" : ""}`} key={keyFor(calendarMonth, day)} onClick={() => { setCurrentPage(1); setDateFilter(dateFilter === keyFor(calendarMonth, day) ? "" : keyFor(calendarMonth, day)); }} type="button">{day}{allRows.some((request) => request.date.slice(0, 10) === keyFor(calendarMonth, day)) && <i />}</button>)}</div>
-        {dateFilter && <button className="clear-filter" onClick={clearFilters} type="button">Clear all filters</button>}
-      </aside>
-      <section className="admin-table-wrap">
+    <section className="admin-table-wrap">
         <div className="admin-table-heading"><div><h2>All volunteer requests</h2><p>{filtered.length} result{filtered.length === 1 ? "" : "s"}{dateFilter ? ` on ${formatDate(dateFilter)}` : ""}</p></div><button className="refresh-button" onClick={() => loadRequests()} type="button">Refresh ↻</button></div>
         <div className="status-tabs">{statusTabs.map((item) => <button className={tab === item.id ? "status-tab status-tab--active" : "status-tab"} key={item.id} onClick={() => { setCurrentPage(1); setTab(item.id); }} type="button">{item.label} <span>{item.id === "all" ? filterableRows.length : filterableRows.filter((r) => r.status === item.id).length}</span></button>)}</div>
         <div className="admin-filters">
           <label>Search<input value={search} placeholder="Name, phone, reference, ward, or stake" onChange={(event) => { setCurrentPage(1); setSearch(event.target.value); }} /></label>
           <label>Shift<select value={shiftFilter} onChange={(event) => { setCurrentPage(1); setShiftFilter(event.target.value); }}><option value="">All shifts</option>{availableShifts.sort().map((shift) => <option key={shift} value={shift}>{shift.endsWith("-day") ? "Day shift" : "Evening shift"} · {formatDate(shift.slice(0, 10))}</option>)}</select></label>
+          <div className="date-filter">
+            <span className="date-filter__label">Date</span>
+            <button className="date-filter__trigger" aria-expanded={calendarOpen} onClick={() => setCalendarOpen((open) => !open)} type="button">{dateFilter ? formatDate(dateFilter) : "All dates"} <span aria-hidden="true">⌄</span></button>
+            {calendarOpen && <div className="date-filter__popover" role="dialog" aria-label="Filter by date">
+              <button className="date-filter__all" onClick={clearDateFilter} type="button">All dates</button>
+              <div className="admin-calendar__header"><button className="calendar__nav" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1, 12))} type="button" aria-label="Previous month">‹</button><strong>{monthLabel}</strong><button className="calendar__nav" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1, 12))} type="button" aria-label="Next month">›</button></div>
+              <div className="calendar__weekdays">{["S", "M", "T", "W", "T", "F", "S"].map((day, i) => <span key={`${day}-${i}`}>{day}</span>)}</div>
+              <div className="calendar__grid">{calendarDays(calendarMonth).map((day, i) => day === null ? <span className="calendar__empty" key={`empty-${i}`} /> : <button className={`calendar__day${dateFilter === keyFor(calendarMonth, day) ? " calendar__day--selected" : ""}`} key={keyFor(calendarMonth, day)} onClick={() => { setCurrentPage(1); setDateFilter(keyFor(calendarMonth, day)); setCalendarOpen(false); }} type="button">{day}{allRows.some((request) => request.date.slice(0, 10) === keyFor(calendarMonth, day)) && <i />}</button>)}</div>
+            </div>}
+          </div>
           {(search || dateFilter || shiftFilter || tab !== "all") && <button className="clear-filter admin-clear-filters" onClick={clearFilters} type="button">Clear all filters</button>}
         </div>
         {filtered.length > 0 && <nav className="admin-pagination" aria-label="Booking results pagination">
@@ -296,7 +306,6 @@ export default function AdminPage() {
           <small>Stake / District: {request.stakeDistrict}</small>
         </td><td data-label="Status"><span className={`status status--${request.status}`}>{request.status === "rejected" ? "denied" : request.status}</span></td><td data-label="Actions"><div className="table-actions">{request.status === "pending" && <><button className="action-confirm" onClick={() => changeStatus(request.reference, "confirmed")} type="button">Confirm</button><button className="action-reject" onClick={() => changeStatus(request.reference, "rejected")} type="button">Deny</button></>}{request.status === "waitlisted" && <><button className="action-confirm" onClick={() => promoteWaitlist(request.reference)} type="button">Promote</button><button className="action-delete" onClick={() => removeWaitlist(request.reference)} type="button">Remove</button></>}{request.status !== "waitlisted" && <><button className="action-edit" onClick={() => setEditing(request)} type="button">Edit</button><button className="action-delete" onClick={() => deleteRequest(request.reference)} type="button">Delete</button></>}</div></td></tr>)}</tbody></table></div>}
       </section>
-    </div></div>
     {editing && <div className="modal-backdrop" role="presentation"><form className="edit-modal" onSubmit={async (event) => {
       event.preventDefault(); const data = new FormData(event.currentTarget); const saved = await updateRequest({
         reference: editing.reference,

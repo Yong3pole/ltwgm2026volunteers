@@ -79,9 +79,17 @@
 }
 
 @media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
   .overview-page { padding: 0; }
+  .overview-container { max-width: none; }
   .overview-actions { display: none; }
-  .overview-sheet { box-shadow: none; }
+  .overview-sheet { border: 0; box-shadow: none; }
   .overview-sheet__scroll { max-height: none; overflow: visible; }
+  .overview-grid { min-width: 0; table-layout: fixed; width: 100%; }
+  .overview-grid th, .overview-grid td { padding: 6px; }
   .overview-grid thead th { position: static; }
 }

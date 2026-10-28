@@ -1,8 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Menu, X } from "lucide-react";
 import Link from "next/link";
-import AdminNav from "../AdminNav";
 
 type ScheduleRow = {
   shiftId: string; date: string; label: string; startTime: string; endTime: string;
@@ -23,6 +23,7 @@ export default function SchedulePage() {
   const [authenticated, setAuthenticated] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   async function loadSchedule() {
     const response = await fetch("/api/admin/schedule");
@@ -84,8 +85,8 @@ export default function SchedulePage() {
   if (!authenticated) return <main className="admin-page"><section className="admin-login"><p className="eyebrow eyebrow--dark">Light The World · Admin</p><h1>Sign in required</h1><p>Please sign in from the bookings page before opening schedule management.</p><Link className="button" href="/admin">Go to admin sign in <span>→</span></Link></section></main>;
 
   return <main className="admin-page"><div className="shell admin-dashboard">
-    <header className="admin-header"><div><p className="eyebrow eyebrow--dark">Light The World · Admin</p><h1>Manage schedule</h1></div><div className="admin-header-actions"><Link className="button button--secondary admin-logout" href="/admin">Manage bookings</Link><button className="button button--secondary admin-logout" disabled={loggingOut} onClick={logout} type="button">{loggingOut ? "Signing out…" : "Sign out"}</button></div></header>
-    <div className="admin-content-layout"><AdminNav /><section className="schedule-manager schedule-manager-page">
+    <header className="admin-header"><div><p className="eyebrow eyebrow--dark">Light The World · Admin</p><h1>Manage schedule</h1></div><button className="admin-menu-toggle" aria-expanded={menuOpen} aria-controls="admin-header-menu" aria-label={menuOpen ? "Close admin menu" : "Open admin menu"} onClick={() => setMenuOpen((open) => !open)} type="button">{menuOpen ? <X size={22} strokeWidth={1.8} /> : <Menu size={22} strokeWidth={1.8} />}</button><nav className={`admin-header-actions${menuOpen ? " admin-header-actions--open" : ""}`} id="admin-header-menu" aria-label="Admin sections"><Link className="admin-nav__link admin-header-action" href="/admin">Manage bookings</Link><Link className="admin-nav__link admin-header-action admin-nav__link--active" href="/admin/schedule">Manage schedule</Link><a className="admin-nav__link admin-header-action" href="/admin/overview" target="_blank" rel="noopener">View schedule</a><button className="admin-nav__link admin-header-action" disabled={loggingOut} onClick={logout} type="button">Sign out</button></nav></header>
+    <section className="schedule-manager schedule-manager-page">
       <div className="schedule-manager__header"><div><p className="eyebrow eyebrow--dark">Schedule management</p><h2>Event dates and shifts</h2><p>Add dates, adjust shift times, or copy a schedule. Dates with active requests cannot be removed.</p></div>
         <form className="schedule-add" onSubmit={addSchedule}><label>Add date<input name="date" type="date" required /></label><label>Copy from<select name="sourceDate"><option value="">Default shifts</option>{dates.map((date) => <option key={date} value={date}>{formatDate(date)}</option>)}</select></label><button className="button" type="submit">Add date</button></form>
       </div>
@@ -96,7 +97,7 @@ export default function SchedulePage() {
         const waitlisted = rows.reduce((sum, row) => sum + Number(row.waitlistCount), 0);
         return <div className="schedule-card" key={date}><div className="schedule-card__heading"><div><strong>{formatDate(date)}</strong><small>{bookings} booking{bookings === 1 ? "" : "s"} · {waitlisted} waitlisted</small></div><div><button className="action-edit" onClick={() => setEditing(date)} type="button">Edit</button><button className="action-delete" disabled={bookings > 0 || waitlisted > 0} onClick={() => removeSchedule(date)} type="button">Remove</button></div></div><div className="schedule-card__shifts">{rows.map((row) => <div key={row.shiftId}><strong>{row.label}</strong><span>{formatTime12(row.startTime)}–{formatTime12(row.endTime)} · capacity {row.capacity}</span></div>)}</div></div>;
       })}</div>
-    </section></div>
+    </section>
     {editing && <div className="modal-backdrop" role="presentation"><form className="edit-modal" onSubmit={(event) => saveSchedule(event, editing)}><div className="edit-modal__header"><h2>Edit schedule</h2><button type="button" onClick={() => setEditing(null)} aria-label="Close schedule form">×</button></div><p className="reference">Existing bookings remain attached to their shift.</p><label>Schedule date<input name="date" type="date" defaultValue={editing} required /></label>{schedule.filter((row) => row.date === editing).map((row, index) => <fieldset className="schedule-fieldset" key={row.shiftId}><legend>{row.label}</legend><label>Start time<input name={`startTime-${index}`} type="time" defaultValue={row.startTime} required /></label><label>End time<input name={`endTime-${index}`} type="time" defaultValue={row.endTime} required /></label><label>Capacity<input name={`capacity-${index}`} type="number" min="1" max="99" defaultValue={row.capacity} required /></label></fieldset>)}<div className="edit-modal__actions"><button className="button button--secondary" onClick={() => setEditing(null)} type="button">Cancel</button><button className="button" type="submit">Save schedule</button></div></form></div>}
   </div></main>;
 }

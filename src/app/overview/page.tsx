@@ -73,30 +73,30 @@ export default function PublicOverviewPage() {
         <div className="overview-sheet">
           <div className="overview-sheet__bar"><strong>Volunteer schedule</strong><span>{dates.length} dates · {schedule.length} shifts · GMT+8</span></div>
           <div className="overview-sheet__scroll">
-            <table className="overview-grid">
-              <thead><tr><th>Date</th><th>Shift &amp; time</th><th>Confirmed</th><th>Pending review</th><th>Waitlist</th></tr></thead>
-              <tbody>
-                {dates.flatMap((date) => schedule.filter((row) => row.date === date).map((shift, shiftIndex) => {
-                  const confirmed = requests.filter((request) => request.shiftId === shift.shiftId && request.status === "confirmed");
-                  const pending = requests.filter((request) => request.shiftId === shift.shiftId && request.status === "pending");
-                  const queued = waitlist.filter((request) => request.shiftId === shift.shiftId);
-                  const reserved = confirmed.length + pending.length;
-                  return (
-                    <tr className={shiftIndex === 0 ? "overview-grid__first-row" : ""} key={shift.shiftId}>
-                      <th className="overview-grid__date">{shiftIndex === 0 ? formatDate(date) : ""}</th>
-                      <th className="overview-grid__shift">
-                        {shift.label}
-                        <span className="overview-grid__time">{formatTime(shift.startTime)} – {formatTime(shift.endTime)}</span>
-                        <span className="overview-grid__capacity">{reserved} of {shift.capacity} spots reserved · {Math.max(shift.capacity - reserved, 0)} open</span>
-                      </th>
-                      <td className="overview-grid__group overview-grid__group--confirmed"><VolunteerList volunteers={confirmed} /></td>
-                      <td className="overview-grid__group overview-grid__group--pending"><VolunteerList volunteers={pending} /></td>
-                      <td className="overview-grid__group overview-grid__group--waitlist"><VolunteerList volunteers={queued} queue /></td>
-                    </tr>
-                  );
-                }))}
-              </tbody>
-            </table>
+                <table className="overview-grid">
+                  <thead><tr><th>Date</th><th>Shift &amp; time</th><th>Confirmed</th><th>Pending review</th><th>Waitlist</th></tr></thead>
+                  <tbody>
+                    {dates.flatMap((date) => schedule.filter((row) => row.date === date).map((shift, shiftIndex) => {
+                      const confirmed = requests.filter((request) => request.shiftId === shift.shiftId && request.status === "confirmed");
+                      const pending = requests.filter((request) => request.shiftId === shift.shiftId && request.status === "pending");
+                      const queued = waitlist.filter((request) => request.shiftId === shift.shiftId);
+                      const reserved = confirmed.length + pending.length;
+                      return (
+                        <tr className={shiftIndex === 0 ? "overview-grid__first-row" : ""} key={shift.shiftId}>
+                          <th className="overview-grid__date">{shiftIndex === 0 ? formatDate(date) : ""}</th>
+                          <th className="overview-grid__shift">
+                            {shift.label}
+                            <span className="overview-grid__time">{formatTime(shift.startTime)} – {formatTime(shift.endTime)}</span>
+                            <span className="overview-grid__capacity">{reserved} of {shift.capacity} spots reserved · {Math.max(shift.capacity - reserved, 0)} open</span>
+                          </th>
+                          <td className="overview-grid__group overview-grid__group--confirmed"><VolunteerList volunteers={confirmed} /></td>
+                          <td className="overview-grid__group overview-grid__group--pending"><VolunteerList volunteers={pending} /></td>
+                          <td className="overview-grid__group overview-grid__group--waitlist"><VolunteerList volunteers={queued} queue /></td>
+                        </tr>
+                      );
+                    }))}
+                  </tbody>
+                </table>
           </div>
         </div>
       </div>
