@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Swal from "sweetalert2";
 import AdminNav from "./AdminNav";
 
 type Status = "pending" | "confirmed" | "rejected" | "cancelled" | "waitlisted";
@@ -92,35 +93,114 @@ export default function AdminPage() {
     finally { setLoading(false); }
   }
   async function changeStatus(reference: string, status: "confirmed" | "rejected") {
-    await updateRequest({ reference, status });
+    const action = status === "confirmed" ? "confirm" : "deny";
+    const result = await Swal.fire({
+      icon: "question",
+      title: `${status === "confirmed" ? "Confirm" : "Deny"} this request?`,
+      text: `Booking reference: ${reference}`,
+      showCancelButton: true,
+      confirmButtonText: status === "confirmed" ? "Confirm request" : "Deny request",
+      confirmButtonColor: status === "confirmed" ? "#198754" : "#d50032",
+      cancelButtonText: "Cancel",
+    });
+    if (!result.isConfirmed) return;
+    await updateRequest({ reference, status }, `Request ${action}ed successfully.`);
   }
-  async function updateRequest(body: Record<string, string>) {
-    setError("");
-    const response = await fetch("/api/admin/requests", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = (await response.json()) as { error?: string };
-    if (!response.ok) { setError(data.error ?? "Unable to update booking."); return false; }
-    await loadRequests(); return true;
+  async function updateRequest(body: Record<string, string>, successMessage = "Booking updated successfully.") {
+    try {
+      const response = await fetch("/api/admin/requests", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Unable to update booking.");
+      await loadRequests();
+      await Swal.fire({ icon: "success", title: "Success", text: successMessage, confirmButtonColor: "#d50032" });
+      return true;
+    } catch (updateError) {
+      await Swal.fire({
+        icon: "error",
+        title: "Update failed",
+        text: updateError instanceof Error ? updateError.message : "Unable to update booking.",
+        confirmButtonColor: "#d50032",
+      });
+      return false;
+    }
   }
   async function deleteRequest(reference: string) {
-    if (!window.confirm(`Delete booking ${reference}? This cannot be undone.`)) return;
-    const response = await fetch(`/api/admin/requests?reference=${encodeURIComponent(reference)}`, { method: "DELETE" });
-    const data = (await response.json()) as { error?: string };
-    if (!response.ok) { setError(data.error ?? "Unable to delete booking."); return; }
-    await loadRequests();
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Delete this booking?",
+      text: `${reference} will be permanently deleted. This cannot be undone.`,
+      showCancelButton: true,
+      confirmButtonText: "Delete booking",
+      confirmButtonColor: "#d50032",
+      cancelButtonText: "Cancel",
+    });
+    if (!result.isConfirmed) return;
+    try {
+      const response = await fetch(`/api/admin/requests?reference=${encodeURIComponent(reference)}`, { method: "DELETE" });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Unable to delete booking.");
+      await loadRequests();
+      await Swal.fire({ icon: "success", title: "Booking deleted", text: "The booking was deleted successfully.", confirmButtonColor: "#d50032" });
+    } catch (deleteError) {
+      await Swal.fire({
+        icon: "error",
+        title: "Delete failed",
+        text: deleteError instanceof Error ? deleteError.message : "Unable to delete booking.",
+        confirmButtonColor: "#d50032",
+      });
+    }
   }
   async function promoteWaitlist(reference: string) {
-    setError("");
-    const response = await fetch("/api/admin/waitlist", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reference }) });
-    const data = (await response.json()) as { error?: string };
-    if (!response.ok) { setError(data.error ?? "Unable to promote volunteer."); return; }
-    await loadRequests();
+    const result = await Swal.fire({
+      icon: "question",
+      title: "Promote this volunteer?",
+      text: `Booking reference: ${reference}`,
+      showCancelButton: true,
+      confirmButtonText: "Promote volunteer",
+      confirmButtonColor: "#198754",
+      cancelButtonText: "Cancel",
+    });
+    if (!result.isConfirmed) return;
+    try {
+      const response = await fetch("/api/admin/waitlist", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reference }) });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Unable to promote volunteer.");
+      await loadRequests();
+      await Swal.fire({ icon: "success", title: "Volunteer promoted", text: "The waitlisted volunteer is now a booking request.", confirmButtonColor: "#d50032" });
+    } catch (promotionError) {
+      await Swal.fire({
+        icon: "error",
+        title: "Promotion failed",
+        text: promotionError instanceof Error ? promotionError.message : "Unable to promote volunteer.",
+        confirmButtonColor: "#d50032",
+      });
+    }
   }
   async function removeWaitlist(reference: string) {
-    if (!window.confirm(`Remove waitlist entry ${reference}?`)) return;
-    const response = await fetch(`/api/admin/waitlist?reference=${encodeURIComponent(reference)}`, { method: "DELETE" });
-    const data = (await response.json()) as { error?: string };
-    if (!response.ok) { setError(data.error ?? "Unable to remove waitlist entry."); return; }
-    await loadRequests();
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Remove this waitlist entry?",
+      text: `Booking reference: ${reference}`,
+      showCancelButton: true,
+      confirmButtonText: "Remove entry",
+      confirmButtonColor: "#d50032",
+      cancelButtonText: "Cancel",
+    });
+    if (!result.isConfirmed) return;
+    try {
+      const response = await fetch(`/api/admin/waitlist?reference=${encodeURIComponent(reference)}`, { method: "DELETE" });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Unable to remove waitlist entry.");
+      await loadRequests();
+      await Swal.fire({ icon: "success", title: "Waitlist entry removed", text: "The waitlist entry was removed successfully.", confirmButtonColor: "#d50032" });
+    } catch (removeError) {
+      await Swal.fire({
+        icon: "error",
+        title: "Removal failed",
+        text: removeError instanceof Error ? removeError.message : "Unable to remove waitlist entry.",
+        confirmButtonColor: "#d50032",
+      });
+    }
   }
   async function logout() {
     await fetch("/api/admin/logout", { method: "POST" }); setAuthenticated(false);
