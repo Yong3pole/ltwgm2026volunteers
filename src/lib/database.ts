@@ -606,8 +606,20 @@ export async function promoteWaitlistEntry(reference: string) {
        WHERE shift_id = ? AND status IN ('pending', 'confirmed')`,
       [waitlist.shift_id],
     );
-    if (Number(reservedRows[0].count) >= shiftRows[0].capacity) {
-      throw new Error("That shift is still full.");
+    const reservedCount = Number(reservedRows[0].count);
+    if (reservedCount >= shiftRows[0].capacity) {
+      const [statusRows] = await connection.execute<RowDataPacket[]>(
+        `SELECT status, COUNT(*) AS count FROM booking_requests
+         WHERE shift_id = ? AND status IN ('pending', 'confirmed')
+         GROUP BY status`,
+        [waitlist.shift_id],
+      );
+      const counts = new Map(statusRows.map((row) => [row.status as string, Number(row.count)]));
+      const confirmedCount = counts.get("confirmed") ?? 0;
+      const pendingCount = counts.get("pending") ?? 0;
+      throw new Error(
+        `That shift is still full. It already has ${confirmedCount} confirmed and ${pendingCount} pending request${reservedCount === 1 ? "" : "s"}.`,
+      );
     }
 
     const id = crypto.randomUUID();
