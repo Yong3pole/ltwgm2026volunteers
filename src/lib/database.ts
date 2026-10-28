@@ -1,4 +1,5 @@
 import mysql, { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import { getStakeSchedule, isShiftAllowedForStake } from "./stake-schedule";
 
 export type ShiftAvailability = {
   shiftId: string;
@@ -25,7 +26,7 @@ type BookingInput = {
   }>;
 };
 
-type ShiftRow = RowDataPacket & { capacity: number };
+type ShiftRow = RowDataPacket & { capacity: number; serviceDate: string; startTime: string };
 type AdminRequestRow = RowDataPacket & {
   reference: string;
   groupReference: string;
@@ -392,10 +393,14 @@ export async function createBookingRequest(input: BookingInput) {
     for (const person of input.people) {
       const shiftId = person.shiftId;
       const [shiftRows] = await connection.execute<ShiftRow[]>(
-        "SELECT capacity FROM shifts WHERE id = ? AND active = TRUE FOR UPDATE",
+        "SELECT capacity, DATE_FORMAT(service_date, '%Y-%m-%d') AS serviceDate, TIME_FORMAT(start_time, '%H:%i') AS startTime FROM shifts WHERE id = ? AND active = TRUE FOR UPDATE",
         [shiftId],
       );
       if (!shiftRows[0]) throw new Error("One of the selected shifts is not available.");
+      const schedule = getStakeSchedule(person.stakeDistrict);
+      if (!schedule || !isShiftAllowedForStake(schedule, shiftRows[0].serviceDate, shiftRows[0].startTime)) {
+        throw new Error("The selected shift does not match the recommended stake schedule.");
+      }
 
       const [reservedRows] = await connection.execute<RowDataPacket[]>(
         `SELECT COUNT(*) AS count FROM booking_requests

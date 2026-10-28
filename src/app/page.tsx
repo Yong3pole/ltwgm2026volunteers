@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Swal from "sweetalert2";
+import {
+  getStakeSchedule,
+  isShiftAllowedForStake,
+} from "@/lib/stake-schedule";
 
 const fallbackShifts = [
   { id: "morning", label: "Day shift", time: "10:00 AM – 4:00 PM" },
@@ -27,23 +31,19 @@ type Participant = {
   date: string;
   shiftId: string;
 };
-type StakeScheduleGuidance = {
-  stake: string;
-  dateRange: string;
-  shiftPeriod: "DAYTIME" | "EVENING";
-};
-
-const stakeScheduleGuidance: StakeScheduleGuidance[] = [
-  { stake: "Tagum", dateRange: "Nov 28 – Dec 10", shiftPeriod: "DAYTIME" },
-  { stake: "Davao", dateRange: "Nov 28 – Dec 10", shiftPeriod: "EVENING" },
-  { stake: "Panabo", dateRange: "Dec 11 – Dec 23", shiftPeriod: "DAYTIME" },
-  { stake: "Davao West", dateRange: "Dec 11 – Dec 23", shiftPeriod: "EVENING" },
-  { stake: "Digos", dateRange: "Dec 24 – Jan 6", shiftPeriod: "DAYTIME" },
-  { stake: "Buhangin", dateRange: "Dec 24 – Jan 6", shiftPeriod: "EVENING" },
-];
-
 const fallbackStart = new Date("2026-11-28T12:00:00+08:00");
 const fallbackEnd = new Date("2027-01-10T12:00:00+08:00");
+
+function showLoadingAlert(title: string, text: string) {
+  void Swal.fire({
+    title,
+    text,
+    allowOutsideClick: false,
+    allowEscapeKey: false,
+    showConfirmButton: false,
+    didOpen: () => Swal.showLoading(),
+  });
+}
 
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("en-US", {
@@ -140,18 +140,42 @@ export default function Home() {
     ? eventDates[0]
     : activeParticipantDate;
   const selectedDateAvailability = availability.filter((item) => item.date === dateKey(activeSelectedDate));
-  const displayedShifts = selectedDateAvailability.length > 0
+  const selectedDateKey = dateKey(activeSelectedDate);
+  const currentStakeGuidance = currentParticipant?.stakeDistrict
+    ? getStakeSchedule(currentParticipant.stakeDistrict)
+    : undefined;
+  const eligibleDateKeys = useMemo(() => {
+    if (!currentStakeGuidance) return availableDateKeys;
+    if (availableDateKeys.length > 0) {
+      return availableDateKeys.filter((date) =>
+        date >= currentStakeGuidance.startDate && date <= currentStakeGuidance.endDate,
+      );
+    }
+
+    const dates: string[] = [];
+    const current = new Date(`${currentStakeGuidance.startDate}T12:00:00+08:00`);
+    const end = new Date(`${currentStakeGuidance.endDate}T12:00:00+08:00`);
+    while (current <= end) {
+      dates.push(dateKey(current));
+      current.setDate(current.getDate() + 1);
+    }
+    return dates;
+  }, [availableDateKeys, currentStakeGuidance]);
+  const displayedShifts = (selectedDateAvailability.length > 0
     ? selectedDateAvailability
     : fallbackShifts.map((shift) => ({
       shiftId: `${dateKey(activeSelectedDate)}-${shift.id === "morning" ? "day" : "evening"}`,
-      date: dateKey(eventDates[0] ?? fallbackStart),
+      date: selectedDateKey,
       label: shift.label,
       startTime: shift.id === "morning" ? "10:00" : "15:00",
       endTime: shift.id === "morning" ? "16:00" : "21:00",
       capacity: 2,
       reserved: 0,
-    }));
-  const selectedDateKey = dateKey(activeSelectedDate);
+    }))).filter((shift) => !currentStakeGuidance || isShiftAllowedForStake(
+      currentStakeGuidance,
+      selectedDateKey,
+      shift.startTime,
+    ));
   const currentParticipantDateLabel = currentParticipant?.date
     ? formatDate(new Date(`${currentParticipant.date}T12:00:00+08:00`))
     : "Date not selected";
@@ -164,9 +188,6 @@ export default function Home() {
   const currentParticipantShiftTime = currentParticipantShift
     ? `${formatTime12(currentParticipantShift.startTime)} – ${formatTime12(currentParticipantShift.endTime)}`
     : "";
-  const currentStakeGuidance = currentParticipant?.stakeDistrict
-    ? stakeScheduleGuidance.find((item) => item.stake === currentParticipant.stakeDistrict)
-    : undefined;
   const calendarDays = getCalendarDays(calendarMonth);
   const calendarMonthLabel = new Intl.DateTimeFormat("en-US", {
     month: "long",
@@ -186,6 +207,31 @@ export default function Home() {
 
   function updateParticipant(id: string, update: Partial<Participant>) {
     setParticipants((current) => current.map((person) => person.id === id ? { ...person, ...update } : person));
+  }
+
+  function chooseStake(stake: string) {
+    if (!currentParticipant) return;
+    const guidance = getStakeSchedule(stake);
+    const currentDate = currentParticipant.date;
+    const dateIsAllowed = guidance
+      ? currentDate >= guidance.startDate &&
+        currentDate <= guidance.endDate &&
+        (availableDateKeys.length === 0 || availableDateKeys.includes(currentDate))
+      : true;
+    const firstEligibleDate = guidance
+      ? availableDateKeys.find((date) =>
+        date >= guidance.startDate && date <= guidance.endDate,
+      ) ?? guidance.startDate
+      : currentDate;
+    const nextDate = dateIsAllowed ? currentDate : firstEligibleDate;
+    updateParticipant(currentParticipant.id, {
+      stakeDistrict: stake,
+      date: nextDate,
+      shiftId: "",
+    });
+    const nextDateValue = new Date(`${nextDate}T12:00:00+08:00`);
+    setSelectedDate(nextDateValue);
+    setCalendarMonth(new Date(nextDateValue.getFullYear(), nextDateValue.getMonth(), 1, 12));
   }
 
   function beginForm(count: number) {
@@ -226,6 +272,7 @@ export default function Home() {
   async function handleSubmit() {
     setError("");
     setSubmitting(true);
+    showLoadingAlert("Submitting request", "Please wait while we save your volunteer request.");
     try {
       const response = await fetch("/api/booking-requests", {
         method: "POST",
@@ -247,6 +294,7 @@ export default function Home() {
       }
 
       setConfirmationOpen(false);
+      Swal.close();
       await Swal.fire({
         icon: "success",
         title: data.waitlisted ? "You are on the waitlist." : "Thank you for volunteering.",
@@ -259,6 +307,7 @@ export default function Home() {
       });
       window.location.reload();
     } catch (submissionError) {
+      Swal.close();
       setError(submissionError instanceof Error ? submissionError.message : "We could not save your request.");
     } finally {
       setSubmitting(false);
@@ -338,7 +387,7 @@ export default function Home() {
                 <div className="participant-card">
                   <label>
                     Stake or District
-                    <select value={currentParticipant.stakeDistrict} required onChange={(event) => updateParticipant(currentParticipant.id, { stakeDistrict: event.target.value })}>
+                    <select value={currentParticipant.stakeDistrict} required onChange={(event) => chooseStake(event.target.value)}>
                       <option value="" disabled>Select your stake or district</option>
                       {["Buhangin", "Davao", "Davao West", "Panabo", "Tagum", "Digos"].map((name) => <option key={name} value={name}>{name}</option>)}
                     </select>
@@ -436,7 +485,9 @@ export default function Home() {
                   {calendarDays.map((date, index) => {
                     if (!date) return <span className="calendar__empty" key={`empty-${index}`} />;
                     const key = dateKey(date);
-                    const isAvailable = availableDateKeys.length > 0 ? availableDateKeys.includes(key) : key >= dateKey(fallbackStart) && key <= dateKey(fallbackEnd);
+                    const isAvailable = eligibleDateKeys.length > 0
+                      ? eligibleDateKeys.includes(key)
+                      : key >= dateKey(fallbackStart) && key <= dateKey(fallbackEnd);
                     const isSelected = key === selectedDateKey;
                     return (
                       <button className={`calendar__day${isSelected ? " calendar__day--selected" : ""}${!isAvailable ? " calendar__day--disabled" : ""}`} disabled={!isAvailable} key={key} onClick={() => {
