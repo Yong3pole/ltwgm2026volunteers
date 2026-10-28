@@ -44,6 +44,17 @@ function keyFor(month: Date, day: number) {
   return `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function showLoadingAlert(title: string, text: string) {
+  void Swal.fire({
+    title,
+    text,
+    allowOutsideClick: false,
+    allowEscapeKey: false,
+    showConfirmButton: false,
+    didOpen: () => Swal.showLoading(),
+  });
+}
+
 export default function AdminPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
@@ -85,15 +96,32 @@ export default function AdminPage() {
     if (!response.ok) throw new Error(data.error ?? "Unable to load schedule.");
     setSchedule(data.schedule ?? []);
   }
+  async function refreshRequests() {
+    showLoadingAlert("Refreshing requests", "Please wait while we reload the latest booking information.");
+    try {
+      await loadRequests();
+    } catch (refreshError) {
+      await Swal.fire({
+        icon: "error",
+        title: "Refresh failed",
+        text: refreshError instanceof Error ? refreshError.message : "Unable to refresh requests.",
+        confirmButtonColor: "#d50032",
+      });
+    } finally {
+      Swal.close();
+    }
+  }
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(""); setLoading(true);
+    showLoadingAlert("Signing in", "Please wait while we load the admin dashboard.");
     try {
       const response = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Login failed.");
       setPassword(""); await loadRequests();
     } catch (loginError) { setError(loginError instanceof Error ? loginError.message : "Login failed."); }
-    finally { setLoading(false); }
+    finally { Swal.close(); }
+    setLoading(false);
   }
   async function changeStatus(reference: string, status: "confirmed" | "rejected") {
     const action = status === "confirmed" ? "confirm" : "deny";
@@ -110,14 +138,17 @@ export default function AdminPage() {
     await updateRequest({ reference, status }, `Request ${action}ed successfully.`);
   }
   async function updateRequest(body: Record<string, string>, successMessage = "Booking updated successfully.") {
+    showLoadingAlert("Updating booking", "Please wait while we save the booking changes.");
     try {
       const response = await fetch("/api/admin/requests", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Unable to update booking.");
       await loadRequests();
+      Swal.close();
       await Swal.fire({ icon: "success", title: "Success", text: successMessage, confirmButtonColor: "#d50032" });
       return true;
     } catch (updateError) {
+      Swal.close();
       await Swal.fire({
         icon: "error",
         title: "Update failed",
@@ -138,13 +169,16 @@ export default function AdminPage() {
       cancelButtonText: "Cancel",
     });
     if (!result.isConfirmed) return;
+    showLoadingAlert("Deleting booking", "Please wait while we remove the booking.");
     try {
       const response = await fetch(`/api/admin/requests?reference=${encodeURIComponent(reference)}`, { method: "DELETE" });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Unable to delete booking.");
       await loadRequests();
+      Swal.close();
       await Swal.fire({ icon: "success", title: "Booking deleted", text: "The booking was deleted successfully.", confirmButtonColor: "#d50032" });
     } catch (deleteError) {
+      Swal.close();
       await Swal.fire({
         icon: "error",
         title: "Delete failed",
@@ -164,13 +198,16 @@ export default function AdminPage() {
       cancelButtonText: "Cancel",
     });
     if (!result.isConfirmed) return;
+    showLoadingAlert("Promoting volunteer", "Please wait while we move this volunteer into booking review.");
     try {
       const response = await fetch("/api/admin/waitlist", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reference }) });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Unable to promote volunteer.");
       await loadRequests();
+      Swal.close();
       await Swal.fire({ icon: "success", title: "Volunteer promoted", text: "The waitlisted volunteer is now a booking request.", confirmButtonColor: "#d50032" });
     } catch (promotionError) {
+      Swal.close();
       await Swal.fire({
         icon: "error",
         title: "Promotion failed",
@@ -190,13 +227,16 @@ export default function AdminPage() {
       cancelButtonText: "Cancel",
     });
     if (!result.isConfirmed) return;
+    showLoadingAlert("Removing waitlist entry", "Please wait while we remove this waitlist entry.");
     try {
       const response = await fetch(`/api/admin/waitlist?reference=${encodeURIComponent(reference)}`, { method: "DELETE" });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Unable to remove waitlist entry.");
       await loadRequests();
+      Swal.close();
       await Swal.fire({ icon: "success", title: "Waitlist entry removed", text: "The waitlist entry was removed successfully.", confirmButtonColor: "#d50032" });
     } catch (removeError) {
+      Swal.close();
       await Swal.fire({
         icon: "error",
         title: "Removal failed",
@@ -206,7 +246,13 @@ export default function AdminPage() {
     }
   }
   async function logout() {
-    await fetch("/api/admin/logout", { method: "POST" }); setAuthenticated(false);
+    showLoadingAlert("Signing out", "Please wait while we end your admin session.");
+    try {
+      await fetch("/api/admin/logout", { method: "POST" });
+      setAuthenticated(false);
+    } finally {
+      Swal.close();
+    }
   }
   function clearFilters() {
     setCurrentPage(1);
@@ -278,7 +324,7 @@ export default function AdminPage() {
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="admin-stats"><div><strong>{counts.pending}</strong><span>Pending review</span></div><div><strong>{counts.confirmed}</strong><span>Confirmed</span></div><div><strong>{waitlist.length}</strong><span>Waitlisted</span></div></div>
     <section className="admin-table-wrap">
-        <div className="admin-table-heading"><div><h2>All volunteer requests</h2><p>{filtered.length} result{filtered.length === 1 ? "" : "s"}{dateFilter ? ` on ${formatDate(dateFilter)}` : ""}</p></div><button className="refresh-button" onClick={() => loadRequests()} type="button">Refresh ↻</button></div>
+        <div className="admin-table-heading"><div><h2>All volunteer requests</h2><p>{filtered.length} result{filtered.length === 1 ? "" : "s"}{dateFilter ? ` on ${formatDate(dateFilter)}` : ""}</p></div><button className="refresh-button" onClick={refreshRequests} type="button">Refresh ↻</button></div>
         <div className="status-tabs">{statusTabs.map((item) => <button className={tab === item.id ? "status-tab status-tab--active" : "status-tab"} key={item.id} onClick={() => { setCurrentPage(1); setTab(item.id); }} type="button">{item.label} <span>{item.id === "all" ? filterableRows.length : filterableRows.filter((r) => r.status === item.id).length}</span></button>)}</div>
         <div className="admin-filters">
           <label>Search<input value={search} placeholder="Name, phone, reference, ward, or stake" onChange={(event) => { setCurrentPage(1); setSearch(event.target.value); }} /></label>

@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Menu, X } from "lucide-react";
 import Link from "next/link";
+import Swal from "sweetalert2";
 
 type ScheduleRow = {
   shiftId: string; date: string; label: string; startTime: string; endTime: string;
@@ -15,6 +16,17 @@ function formatDate(value: string) {
 function formatTime12(value: string) {
   const [hours, minutes] = value.slice(0, 5).split(":").map(Number);
   return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
+}
+
+function showLoadingAlert(title: string, text: string) {
+  void Swal.fire({
+    title,
+    text,
+    allowOutsideClick: false,
+    allowEscapeKey: false,
+    showConfirmButton: false,
+    didOpen: () => Swal.showLoading(),
+  });
 }
 
 export default function SchedulePage() {
@@ -44,32 +56,54 @@ export default function SchedulePage() {
   async function addSchedule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError("");
     const data = new FormData(event.currentTarget);
-    const response = await fetch("/api/admin/schedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: data.get("date"), sourceDate: data.get("sourceDate") || undefined }) });
-    const result = (await response.json()) as { error?: string };
-    if (!response.ok) { setError(result.error ?? "Unable to add schedule date."); return; }
-    event.currentTarget.reset(); await loadSchedule();
+    showLoadingAlert("Adding schedule date", "Please wait while we save the new schedule.");
+    try {
+      const response = await fetch("/api/admin/schedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: data.get("date"), sourceDate: data.get("sourceDate") || undefined }) });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) { setError(result.error ?? "Unable to add schedule date."); return; }
+      event.currentTarget.reset(); await loadSchedule();
+    } catch (scheduleError) {
+      setError(scheduleError instanceof Error ? scheduleError.message : "Unable to add schedule date.");
+    } finally {
+      Swal.close();
+    }
   }
   async function saveSchedule(event: FormEvent<HTMLFormElement>, currentDate: string) {
     event.preventDefault(); setError("");
     const data = new FormData(event.currentTarget);
     const rows = schedule.filter((row) => row.date === currentDate);
-    const response = await fetch("/api/admin/schedule", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-      currentDate, date: data.get("date"), shifts: rows.map((row, index) => ({ shiftId: row.shiftId, startTime: data.get(`startTime-${index}`), endTime: data.get(`endTime-${index}`), capacity: Number(data.get(`capacity-${index}`)) })),
-    }) });
-    const result = (await response.json()) as { error?: string };
-    if (!response.ok) { setError(result.error ?? "Unable to update schedule."); return; }
-    setEditing(null); await loadSchedule();
+    showLoadingAlert("Saving schedule", "Please wait while we update the schedule.");
+    try {
+      const response = await fetch("/api/admin/schedule", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        currentDate, date: data.get("date"), shifts: rows.map((row, index) => ({ shiftId: row.shiftId, startTime: data.get(`startTime-${index}`), endTime: data.get(`endTime-${index}`), capacity: Number(data.get(`capacity-${index}`)) })),
+      }) });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) { setError(result.error ?? "Unable to update schedule."); return; }
+      setEditing(null); await loadSchedule();
+    } catch (scheduleError) {
+      setError(scheduleError instanceof Error ? scheduleError.message : "Unable to update schedule.");
+    } finally {
+      Swal.close();
+    }
   }
   async function removeSchedule(date: string) {
     if (!window.confirm(`Remove the schedule for ${formatDate(date)}?`)) return;
-    const response = await fetch(`/api/admin/schedule?date=${encodeURIComponent(date)}`, { method: "DELETE" });
-    const result = (await response.json()) as { error?: string };
-    if (!response.ok) { setError(result.error ?? "Unable to remove schedule."); return; }
-    await loadSchedule();
+    showLoadingAlert("Removing schedule", "Please wait while we remove this schedule date.");
+    try {
+      const response = await fetch(`/api/admin/schedule?date=${encodeURIComponent(date)}`, { method: "DELETE" });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) { setError(result.error ?? "Unable to remove schedule."); return; }
+      await loadSchedule();
+    } catch (scheduleError) {
+      setError(scheduleError instanceof Error ? scheduleError.message : "Unable to remove schedule.");
+    } finally {
+      Swal.close();
+    }
   }
   async function logout() {
     setError("");
     setLoggingOut(true);
+    showLoadingAlert("Signing out", "Please wait while we end your admin session.");
     try {
       const response = await fetch("/api/admin/logout", { method: "POST" });
       if (!response.ok) throw new Error("Unable to sign out. Please try again.");
@@ -78,6 +112,7 @@ export default function SchedulePage() {
       setError(logoutError instanceof Error ? logoutError.message : "Unable to sign out. Please try again.");
     } finally {
       setLoggingOut(false);
+      Swal.close();
     }
   }
 
