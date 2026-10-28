@@ -54,6 +54,7 @@ export default function AdminPage() {
   const [tab, setTab] = useState<"all" | Status>("all");
   const [dateFilter, setDateFilter] = useState("");
   const [shiftFilter, setShiftFilter] = useState("");
+  const [stakeFilter, setStakeFilter] = useState("");
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
@@ -212,6 +213,7 @@ export default function AdminPage() {
     setTab("all");
     setDateFilter("");
     setShiftFilter("");
+    setStakeFilter("");
     setSearch("");
   }
   function clearDateFilter() {
@@ -221,32 +223,37 @@ export default function AdminPage() {
   }
 
   const allRows = useMemo(() => [...requests, ...waitlist], [requests, waitlist]);
+  const stakeOptions = useMemo(
+    () => [...new Set(allRows.map((request) => request.stakeDistrict).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [allRows],
+  );
   const filterableRows = useMemo(
     () =>
       allRows.filter(
         (request) =>
           (!dateFilter || request.date.slice(0, 10) === dateFilter) &&
-          (!shiftFilter || request.shiftId === shiftFilter) &&
+          (!shiftFilter || request.shiftId.endsWith(`-${shiftFilter}`)) &&
+          (!stakeFilter || request.stakeDistrict === stakeFilter) &&
           (!search ||
             `${request.fullName} ${request.phone} ${request.reference} ${request.organization} ${request.stakeDistrict}`
               .toLowerCase()
               .includes(search.toLowerCase())),
       ),
-    [allRows, dateFilter, shiftFilter, search],
+    [allRows, dateFilter, shiftFilter, stakeFilter, search],
   );
   const filtered = useMemo(() => allRows
     .filter((request) => (tab === "all" || request.status === tab) &&
       (!dateFilter || request.date.slice(0, 10) === dateFilter) &&
-      (!shiftFilter || request.shiftId === shiftFilter) &&
+      (!shiftFilter || request.shiftId.endsWith(`-${shiftFilter}`)) &&
+      (!stakeFilter || request.stakeDistrict === stakeFilter) &&
       (!search || `${request.fullName} ${request.phone} ${request.reference} ${request.organization} ${request.stakeDistrict}`.toLowerCase().includes(search.toLowerCase())))
-    .sort((a, b) => `${a.date}-${a.createdAt}`.localeCompare(`${b.date}-${b.createdAt}`)), [allRows, tab, dateFilter, shiftFilter, search]);
+    .sort((a, b) => `${a.date}-${a.createdAt}`.localeCompare(`${b.date}-${b.createdAt}`)), [allRows, tab, dateFilter, shiftFilter, stakeFilter, search]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visiblePage = Math.min(currentPage, pageCount);
   const pageRows = filtered.slice((visiblePage - 1) * pageSize, visiblePage * pageSize);
   const firstVisibleRow = filtered.length === 0 ? 0 : (visiblePage - 1) * pageSize + 1;
   const lastVisibleRow = Math.min(visiblePage * pageSize, filtered.length);
 
-  const availableShifts = useMemo(() => [...new Set(allRows.map((request) => request.shiftId))], [allRows]);
   const scheduleDates = useMemo(() => [...new Set(schedule.map((row) => row.date))].sort(), [schedule]);
   const counts = { pending: requests.filter((r) => r.status === "pending").length, confirmed: requests.filter((r) => r.status === "confirmed").length };
   const monthLabel = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(calendarMonth);
@@ -275,7 +282,8 @@ export default function AdminPage() {
         <div className="status-tabs">{statusTabs.map((item) => <button className={tab === item.id ? "status-tab status-tab--active" : "status-tab"} key={item.id} onClick={() => { setCurrentPage(1); setTab(item.id); }} type="button">{item.label} <span>{item.id === "all" ? filterableRows.length : filterableRows.filter((r) => r.status === item.id).length}</span></button>)}</div>
         <div className="admin-filters">
           <label>Search<input value={search} placeholder="Name, phone, reference, ward, or stake" onChange={(event) => { setCurrentPage(1); setSearch(event.target.value); }} /></label>
-          <label>Shift<select value={shiftFilter} onChange={(event) => { setCurrentPage(1); setShiftFilter(event.target.value); }}><option value="">All shifts</option>{availableShifts.sort().map((shift) => <option key={shift} value={shift}>{shift.endsWith("-day") ? "Day shift" : "Evening shift"} · {formatDate(shift.slice(0, 10))}</option>)}</select></label>
+          <label>Shift<select value={shiftFilter} onChange={(event) => { setCurrentPage(1); setShiftFilter(event.target.value); }}><option value="">All shifts</option><option value="day">Day shift</option><option value="evening">Evening shift</option></select></label>
+          <label>Stake / District<select value={stakeFilter} onChange={(event) => { setCurrentPage(1); setStakeFilter(event.target.value); }}><option value="">All stakes / districts</option>{stakeOptions.map((stake) => <option key={stake} value={stake}>{stake}</option>)}</select></label>
           <div className="date-filter">
             <span className="date-filter__label">Date</span>
             <button className="date-filter__trigger" aria-expanded={calendarOpen} onClick={() => setCalendarOpen((open) => !open)} type="button">{dateFilter ? formatDate(dateFilter) : "All dates"} <span aria-hidden="true">⌄</span></button>
@@ -286,7 +294,7 @@ export default function AdminPage() {
               <div className="calendar__grid">{calendarDays(calendarMonth).map((day, i) => day === null ? <span className="calendar__empty" key={`empty-${i}`} /> : <button className={`calendar__day${dateFilter === keyFor(calendarMonth, day) ? " calendar__day--selected" : ""}`} key={keyFor(calendarMonth, day)} onClick={() => { setCurrentPage(1); setDateFilter(keyFor(calendarMonth, day)); setCalendarOpen(false); }} type="button">{day}{allRows.some((request) => request.date.slice(0, 10) === keyFor(calendarMonth, day)) && <i />}</button>)}</div>
             </div>}
           </div>
-          {(search || dateFilter || shiftFilter || tab !== "all") && <button className="clear-filter admin-clear-filters" onClick={clearFilters} type="button">Clear all filters</button>}
+          {(search || dateFilter || shiftFilter || stakeFilter || tab !== "all") && <button className="clear-filter admin-clear-filters" onClick={clearFilters} type="button">Clear all filters</button>}
         </div>
         {filtered.length > 0 && <nav className="admin-pagination" aria-label="Booking results pagination">
           <label className="admin-pagination__size">Rows per page
