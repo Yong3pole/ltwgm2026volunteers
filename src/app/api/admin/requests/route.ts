@@ -1,6 +1,7 @@
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 import {
   deleteBookingRequest,
+  createAdminBookingRequest,
   editBookingRequest,
   getAdminRequests,
   getAdminWaitlist,
@@ -18,6 +19,37 @@ export async function GET() {
   } catch (error) {
     console.error("Unable to load admin requests", error);
     return Response.json({ error: "Unable to load booking requests." }, { status: 503 });
+  }
+}
+
+export async function POST(request: Request) {
+  if (!(await isAdminAuthenticated())) {
+    return Response.json({ error: "Unauthorized." }, { status: 401 });
+  }
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return Response.json({ error: "Invalid request." }, { status: 400 });
+  }
+  const values = {
+    shiftId: typeof body.shiftId === "string" ? body.shiftId.trim() : "",
+    stakeDistrict: typeof body.stakeDistrict === "string" ? body.stakeDistrict.trim() : "",
+    fullName: typeof body.fullName === "string" ? body.fullName.trim() : "",
+    phone: typeof body.phone === "string" ? body.phone.trim() : "",
+    organization: typeof body.organization === "string" ? body.organization.trim() : "",
+  };
+  if (Object.values(values).some((value) => !value)) {
+    return Response.json({ error: "Complete all required booking fields." }, { status: 400 });
+  }
+  if (!/^(09\d{9}|\+639\d{9})$/.test(values.phone)) {
+    return Response.json({ error: "Use Philippine mobile format: 09XXXXXXXXX or +639XXXXXXXXX." }, { status: 400 });
+  }
+  try {
+    return Response.json(await createAdminBookingRequest(values), { status: 201 });
+  } catch (error) {
+    console.error("Unable to create admin booking request", error);
+    return Response.json({ error: "Unable to create that booking request." }, { status: 503 });
   }
 }
 

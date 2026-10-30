@@ -255,6 +255,7 @@ input::placeholder { color: #b9aaad; }
 .admin-table-wrap { background: var(--paper); border: 1px solid var(--line); }
 .waitlist-panel { margin-top: 20px; }
 .admin-table-heading { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 22px 25px; }
+.admin-table-heading .admin-add-button { flex: 0 0 auto; margin-top: 0; width: fit-content; }
 .admin-table-heading h2 { font-size: 23px; }
 .admin-table-heading p { color: var(--muted); font-size: 11px; margin: 5px 0 0; }
 .status-tabs { border-bottom: 1px solid var(--line); display: flex; gap: 4px; overflow-x: auto; padding: 0 25px; }

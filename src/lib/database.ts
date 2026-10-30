@@ -439,6 +439,62 @@ export async function createBookingRequest(input: BookingInput) {
   }
 }
 
+export async function createAdminBookingRequest(input: {
+  shiftId: string;
+  stakeDistrict: string;
+  fullName: string;
+  phone: string;
+  organization: string;
+}) {
+  await initializeDatabase();
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [shiftRows] = await connection.execute<ShiftRow[]>(
+      "SELECT capacity FROM shifts WHERE id = ? AND active = TRUE FOR UPDATE",
+      [input.shiftId],
+    );
+    if (!shiftRows[0]) throw new Error("That shift is not available.");
+    const [confirmedRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS count FROM booking_requests
+       WHERE shift_id = ? AND status = 'confirmed'`,
+      [input.shiftId],
+    );
+
+    const id = crypto.randomUUID();
+    const groupReference = `GRP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const fullReference = `LTW-${id.slice(0, 8).toUpperCase()}`;
+    if (Number(confirmedRows[0].count) >= shiftRows[0].capacity) {
+      const waitlistId = crypto.randomUUID();
+      const waitlistReference = `WAIT-${waitlistId.slice(0, 8).toUpperCase()}`;
+      await connection.execute(
+        `INSERT INTO waitlist_entries
+          (id, reference, group_reference, shift_id, stake_district, full_name, phone, organization)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [waitlistId, waitlistReference, groupReference, input.shiftId, input.stakeDistrict,
+          input.fullName, input.phone, input.organization],
+      );
+      await connection.commit();
+      return { reference: waitlistReference, waitlisted: true };
+    }
+
+    await connection.execute(
+      `INSERT INTO booking_requests
+        (id, reference, group_reference, shift_id, stake_district, full_name, phone, organization)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, fullReference, groupReference, input.shiftId, input.stakeDistrict,
+        input.fullName, input.phone, input.organization],
+    );
+    await connection.commit();
+    return { reference: fullReference, waitlisted: false };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 
 export async function getAdminRequests() {
   await initializeDatabase();
