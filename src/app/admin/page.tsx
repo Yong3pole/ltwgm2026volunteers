@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Menu, X } from "lucide-react";
 import Swal from "sweetalert2";
+import { getStakeSchedule, isShiftAllowedForStake } from "@/lib/stake-schedule";
 
 type Status = "pending" | "confirmed" | "rejected" | "cancelled" | "waitlisted";
 type RequestRow = {
@@ -73,6 +74,7 @@ export default function AdminPage() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState<RequestRow | null>(null);
+  const [adding, setAdding] = useState(false);
   const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
 
   useEffect(() => {
@@ -95,21 +97,6 @@ export default function AdminPage() {
     const data = (await response.json()) as { schedule?: ScheduleRow[]; error?: string };
     if (!response.ok) throw new Error(data.error ?? "Unable to load schedule.");
     setSchedule(data.schedule ?? []);
-  }
-  async function refreshRequests() {
-    showLoadingAlert("Refreshing requests", "Please wait while we reload the latest booking information.");
-    try {
-      await loadRequests();
-    } catch (refreshError) {
-      await Swal.fire({
-        icon: "error",
-        title: "Refresh failed",
-        text: refreshError instanceof Error ? refreshError.message : "Unable to refresh requests.",
-        confirmButtonColor: "#d50032",
-      });
-    } finally {
-      Swal.close();
-    }
   }
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(""); setLoading(true);
@@ -158,6 +145,45 @@ export default function AdminPage() {
       return false;
     }
   }
+  async function addRequest(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      showLoadingAlert("Adding booking", "Please wait while we save the booking request.");
+      try {
+        const response = await fetch("/api/admin/requests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            shiftId: String(data.get("shiftId")),
+            stakeDistrict: String(data.get("stakeDistrict")),
+            fullName: String(data.get("fullName")),
+            phone: String(data.get("phone")),
+            organization: String(data.get("organization")),
+          }),
+        });
+        const result = (await response.json()) as { error?: string; waitlisted?: boolean };
+        if (!response.ok) throw new Error(result.error ?? "Unable to add booking.");
+        await loadRequests();
+        setAdding(false);
+        Swal.close();
+        await Swal.fire({
+          icon: "success",
+          title: result.waitlisted ? "Added to waitlist" : "Request added",
+          text: result.waitlisted
+            ? "The confirmed capacity is full, so this volunteer was added to the waitlist."
+            : "The request was added as pending coordinator review.",
+          confirmButtonColor: "#d50032",
+        });
+      } catch (addError) {
+        Swal.close();
+        await Swal.fire({
+          icon: "error",
+          title: "Add failed",
+          text: addError instanceof Error ? addError.message : "Unable to add booking.",
+          confirmButtonColor: "#d50032",
+        });
+      }
+    }
   async function deleteRequest(reference: string) {
     const result = await Swal.fire({
       icon: "warning",
@@ -205,7 +231,7 @@ export default function AdminPage() {
       if (!response.ok) throw new Error(data.error ?? "Unable to promote volunteer.");
       await loadRequests();
       Swal.close();
-      await Swal.fire({ icon: "success", title: "Volunteer promoted", text: "The waitlisted volunteer is now a booking request.", confirmButtonColor: "#d50032" });
+      await Swal.fire({ icon: "success", title: "Volunteer moved to pending", text: "The volunteer is now pending coordinator confirmation.", confirmButtonColor: "#d50032" });
     } catch (promotionError) {
       Swal.close();
       await Swal.fire({
@@ -301,6 +327,7 @@ export default function AdminPage() {
   const lastVisibleRow = Math.min(visiblePage * pageSize, filtered.length);
 
   const scheduleDates = useMemo(() => [...new Set(schedule.map((row) => row.date))].sort(), [schedule]);
+  const editingGuidance = editing ? getStakeSchedule(editing.stakeDistrict) : undefined;
   const counts = { pending: requests.filter((r) => r.status === "pending").length, confirmed: requests.filter((r) => r.status === "confirmed").length };
   const monthLabel = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(calendarMonth);
 
@@ -324,7 +351,7 @@ export default function AdminPage() {
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="admin-stats"><div><strong>{counts.pending}</strong><span>Pending review</span></div><div><strong>{counts.confirmed}</strong><span>Confirmed</span></div><div><strong>{waitlist.length}</strong><span>Waitlisted</span></div></div>
     <section className="admin-table-wrap">
-        <div className="admin-table-heading"><div><h2>All volunteer requests</h2><p>{filtered.length} result{filtered.length === 1 ? "" : "s"}{dateFilter ? ` on ${formatDate(dateFilter)}` : ""}</p></div><button className="refresh-button" onClick={refreshRequests} type="button">Refresh ↻</button></div>
+        <div className="admin-table-heading"><div><h2>All volunteer requests</h2><p>{filtered.length} result{filtered.length === 1 ? "" : "s"}{dateFilter ? ` on ${formatDate(dateFilter)}` : ""}</p></div><button className="button button--secondary admin-add-button" onClick={() => setAdding(true)} type="button">Add request</button></div>
         <div className="status-tabs">{statusTabs.map((item) => <button className={tab === item.id ? "status-tab status-tab--active" : "status-tab"} key={item.id} onClick={() => { setCurrentPage(1); setTab(item.id); }} type="button">{item.label} <span>{item.id === "all" ? filterableRows.length : filterableRows.filter((r) => r.status === item.id).length}</span></button>)}</div>
         <div className="admin-filters">
           <label>Search<input value={search} placeholder="Name, phone, reference, ward, or stake" onChange={(event) => { setCurrentPage(1); setSearch(event.target.value); }} /></label>
@@ -360,9 +387,17 @@ export default function AdminPage() {
           <small>Stake / District: {request.stakeDistrict}</small>
         </td><td data-label="Status"><span className={`status status--${request.status}`}>{request.status === "rejected" ? "denied" : request.status}</span></td><td data-label="Actions"><div className="table-actions">{request.status === "pending" && <><button className="action-confirm" onClick={() => changeStatus(request.reference, "confirmed")} type="button">Confirm</button><button className="action-reject" onClick={() => changeStatus(request.reference, "rejected")} type="button">Deny</button></>}{request.status === "waitlisted" && <><button className="action-confirm" onClick={() => promoteWaitlist(request.reference)} type="button">Promote</button><button className="action-delete" onClick={() => removeWaitlist(request.reference)} type="button">Remove</button></>}{request.status !== "waitlisted" && <><button className="action-edit" onClick={() => setEditing(request)} type="button">Edit</button><button className="action-delete" onClick={() => deleteRequest(request.reference)} type="button">Delete</button></>}</div></td></tr>)}</tbody></table></div>}
       </section>
+    {adding && <div className="modal-backdrop" role="presentation"><form className="edit-modal" onSubmit={addRequest}><div className="edit-modal__header"><h2>Add booking request</h2><button type="button" onClick={() => setAdding(false)} aria-label="Close add form">×</button></div><p className="reference">Admin override: any recommended schedule may be selected.</p><label>
+        Booking date
+        <select name="shiftId" defaultValue="" required>
+          <option value="" disabled>Select a date and shift</option>
+          {scheduleDates.map((date) => <optgroup key={date} label={formatDate(date)}>{schedule.filter((row) => row.date === date).map((row) => <option key={row.shiftId} value={row.shiftId}>{row.label} · {formatTime12(row.startTime)}–{formatTime12(row.endTime)}</option>)}</optgroup>)}
+        </select>
+      </label><label>Stake or District<select name="stakeDistrict" defaultValue="" required><option value="" disabled>Select stake or district</option>{["Buhangin", "Davao", "Davao West", "Panabo", "Tagum", "Digos"].map((name) => <option key={name} value={name}>{name}</option>)}</select></label><label>Ward or Branch<input name="organization" required maxLength={160} /></label><label>Full name<input name="fullName" required maxLength={120} /></label><label>Mobile number<input name="phone" type="tel" inputMode="tel" required pattern="(09[0-9]{9}|\+639[0-9]{9}|9[0-9]{9})" /></label><div className="edit-modal__actions"><button className="button button--secondary" onClick={() => setAdding(false)} type="button">Cancel</button><button className="button" type="submit">Add request</button></div></form></div>}
     {editing && <div className="modal-backdrop" role="presentation"><form className="edit-modal" onSubmit={async (event) => {
       event.preventDefault(); const data = new FormData(event.currentTarget); const saved = await updateRequest({
         reference: editing.reference,
+        status: String(data.get("status")),
         shiftId: String(data.get("shiftId")),
         stakeDistrict: String(data.get("stakeDistrict")),
         fullName: String(data.get("fullName")),
@@ -370,13 +405,23 @@ export default function AdminPage() {
         organization: String(data.get("organization")),
       }); if (saved) setEditing(null);
     }}><div className="edit-modal__header"><h2>Edit booking</h2><button type="button" onClick={() => setEditing(null)} aria-label="Close edit form">×</button></div><p className="reference">{editing.reference} · current: {formatDate(editing.date)} · {editing.shiftLabel}</p><label>
-        Booking date
-        <select name="shiftId" defaultValue={editing.shiftId} required>
-          {scheduleDates.map((date) => (
-            <optgroup key={date} label={formatDate(date)}>
-              {schedule
-                .filter((row) => row.date === date)
-                .map((row) => (
+      Status
+      <select name="status" defaultValue={editing.status} required>
+        <option value="pending">Pending</option>
+        <option value="confirmed">Confirmed</option>
+        <option value="rejected">Denied</option>
+        <option value="waitlisted">Waitlisted</option>
+      </select>
+    </label>
+    <label>
+      Booking date
+      <select name="shiftId" defaultValue={editing.shiftId} required>
+        {scheduleDates.map((date) => (
+          <optgroup key={date} label={formatDate(date)}>
+            {schedule
+              .filter((row) => row.date === date &&
+                (!editingGuidance || isShiftAllowedForStake(editingGuidance, row.date, row.startTime)))
+              .map((row) => (
                   <option key={row.shiftId} value={row.shiftId}>
                     {row.label} · {formatTime12(row.startTime)}–
                     {formatTime12(row.endTime)}
@@ -393,6 +438,9 @@ export default function AdminPage() {
           name="stakeDistrict"
           defaultValue={editing.stakeDistrict}
           required
+          onChange={(event) => setEditing((current) => current
+            ? { ...current, stakeDistrict: event.target.value }
+            : current)}
         >
           {["Buhangin", "Davao", "Davao West", "Panabo", "Tagum", "Digos"].map(
             (name) => (

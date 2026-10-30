@@ -1,6 +1,7 @@
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 import {
   deleteBookingRequest,
+  createAdminBookingRequest,
   editBookingRequest,
   getAdminRequests,
   getAdminWaitlist,
@@ -18,6 +19,37 @@ export async function GET() {
   } catch (error) {
     console.error("Unable to load admin requests", error);
     return Response.json({ error: "Unable to load booking requests." }, { status: 503 });
+  }
+}
+
+export async function POST(request: Request) {
+  if (!(await isAdminAuthenticated())) {
+    return Response.json({ error: "Unauthorized." }, { status: 401 });
+  }
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return Response.json({ error: "Invalid request." }, { status: 400 });
+  }
+  const values = {
+    shiftId: typeof body.shiftId === "string" ? body.shiftId.trim() : "",
+    stakeDistrict: typeof body.stakeDistrict === "string" ? body.stakeDistrict.trim() : "",
+    fullName: typeof body.fullName === "string" ? body.fullName.trim() : "",
+    phone: typeof body.phone === "string" ? body.phone.trim() : "",
+    organization: typeof body.organization === "string" ? body.organization.trim() : "",
+  };
+  if (Object.values(values).some((value) => !value)) {
+    return Response.json({ error: "Complete all required booking fields." }, { status: 400 });
+  }
+  if (!/^(09\d{9}|\+639\d{9})$/.test(values.phone)) {
+    return Response.json({ error: "Use Philippine mobile format: 09XXXXXXXXX or +639XXXXXXXXX." }, { status: 400 });
+  }
+  try {
+    return Response.json(await createAdminBookingRequest(values), { status: 201 });
+  } catch (error) {
+    console.error("Unable to create admin booking request", error);
+    return Response.json({ error: "Unable to create that booking request." }, { status: 503 });
   }
 }
 
@@ -44,7 +76,8 @@ export async function PATCH(request: Request) {
   }
 
   const reference = typeof body.reference === "string" ? body.reference.trim() : "";
-  const status = body.status === "confirmed" || body.status === "rejected" ? body.status : undefined;
+  const status = body.status === "pending" || body.status === "confirmed" ||
+    body.status === "rejected" || body.status === "waitlisted" ? body.status : undefined;
   const shiftId = typeof body.shiftId === "string" ? body.shiftId.trim() : "";
   const editFields = {
     stakeDistrict: typeof body.stakeDistrict === "string" ? body.stakeDistrict.trim() : "",
@@ -52,19 +85,16 @@ export async function PATCH(request: Request) {
     phone: typeof body.phone === "string" ? body.phone.trim() : "",
     organization: typeof body.organization === "string" ? body.organization.trim() : "",
   };
-  if (!reference || (!status && (!shiftId || Object.values(editFields).every((value) => !value)))) {
+  const hasEditFields = Boolean(shiftId && Object.values(editFields).every(Boolean));
+  if (!reference || (!status && !hasEditFields) || (status && !hasEditFields && body.shiftId !== undefined)) {
     return Response.json({ error: "A reference and an update are required." }, { status: 400 });
   }
 
   try {
-    if (status) {
-      await updateBookingStatus(reference, status);
-    } else {
-      if (!shiftId || !editFields.stakeDistrict || !editFields.fullName || !editFields.phone || !editFields.organization) {
-        return Response.json({ error: "Complete all required booking fields." }, { status: 400 });
-      }
-      await editBookingRequest(reference, { ...editFields, shiftId });
+    if (hasEditFields) {
+      await editBookingRequest(reference, { ...editFields, shiftId, targetStatus: status });
     }
+    if (status) await updateBookingStatus(reference, status);
     return Response.json({ updated: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";

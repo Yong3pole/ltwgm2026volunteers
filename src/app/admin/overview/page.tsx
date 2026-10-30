@@ -138,7 +138,7 @@ export default function AdminOverviewPage() {
                     const confirmed = bookings.filter((request) => request.status === "confirmed");
                     const pending = bookings.filter((request) => request.status === "pending");
                     const queued = waitlist.filter((request) => request.shiftId === shift.shiftId);
-                    const reserved = confirmed.length + pending.length;
+                    const reserved = confirmed.length;
                     return (
                       <tr className={shiftIndex === 0 ? "overview-grid__first-row" : ""} key={shift.shiftId}>
                         <th className="overview-grid__date">{shiftIndex === 0 ? formatDate(date) : ""}</th>
