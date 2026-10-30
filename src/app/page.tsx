@@ -258,6 +258,35 @@ export default function Home() {
     setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1, 12));
   }
 
+  function validateParticipants() {
+    const fieldLabels: Array<[keyof Participant, string]> = [
+      ["stakeDistrict", "stake or district"],
+      ["wardBranch", "ward or branch"],
+      ["fullName", "full name"],
+      ["phone", "contact number"],
+      ["shiftId", "date and shift"],
+    ];
+    const incompleteIndex = participants.findIndex((person) =>
+      fieldLabels.some(([field]) => !person[field]),
+    );
+    if (incompleteIndex === -1) return true;
+
+    const incompletePerson = participants[incompleteIndex];
+    const missingFields = fieldLabels
+      .filter(([field]) => !incompletePerson[field])
+      .map(([, label]) => label);
+    chooseParticipant(incompleteIndex);
+    setError(`Complete the details for Volunteer ${incompleteIndex + 1}.`);
+    void Swal.fire({
+      icon: "warning",
+      title: `Volunteer ${incompleteIndex + 1} is incomplete`,
+      text: `Please complete: ${missingFields.join(", ")}.`,
+      confirmButtonText: "Review details",
+      confirmButtonColor: "#d50032",
+    });
+    return false;
+  }
+
   function setVolunteerCountFromInput(value: string) {
     setVolunteerCountInput(value.replace(/[^\d]/g, "").slice(0, 2));
   }
@@ -300,7 +329,7 @@ export default function Home() {
         title: data.waitlisted ? "You are on the waitlist." : "Thank you for volunteering.",
         text: data.waitlisted
           ? "That shift is currently full, so your details have been saved in case a spot opens."
-          : "Your request is pending coordinator review and is holding a spot for this shift.",
+          : "Your request is pending coordinator review and will reserve a spot only if confirmed.",
         footer: `Reference: <strong>${data.groupReference ?? "Not available"}</strong>`,
         confirmButtonText: "Done",
         confirmButtonColor: "#d50032",
@@ -439,12 +468,8 @@ export default function Home() {
               )}
 
               <button className="button" disabled={submitting} onClick={(event) => {
-                if (!participants.every((person) => person.stakeDistrict && person.wardBranch && person.fullName && person.phone && person.shiftId)) {
-                  event.preventDefault();
-                  setError("Complete the details and schedule for every volunteer before reviewing.");
-                  return;
-                }
                 event.preventDefault();
+                if (!validateParticipants()) return;
                 setConfirmationOpen(true);
               }} type="submit">
                 Submit Request{" "}

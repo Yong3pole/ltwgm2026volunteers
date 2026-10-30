@@ -80,7 +80,7 @@ export default function PublicOverviewPage() {
                       const confirmed = requests.filter((request) => request.shiftId === shift.shiftId && request.status === "confirmed");
                       const pending = requests.filter((request) => request.shiftId === shift.shiftId && request.status === "pending");
                       const queued = waitlist.filter((request) => request.shiftId === shift.shiftId);
-                      const reserved = confirmed.length + pending.length;
+                      const reserved = confirmed.length;
                       return (
                         <tr className={shiftIndex === 0 ? "overview-grid__first-row" : ""} key={shift.shiftId}>
                           <th className="overview-grid__date">{shiftIndex === 0 ? formatDate(date) : ""}</th>

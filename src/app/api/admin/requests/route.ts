@@ -44,7 +44,8 @@ export async function PATCH(request: Request) {
   }
 
   const reference = typeof body.reference === "string" ? body.reference.trim() : "";
-  const status = body.status === "confirmed" || body.status === "rejected" ? body.status : undefined;
+  const status = body.status === "pending" || body.status === "confirmed" ||
+    body.status === "rejected" || body.status === "waitlisted" ? body.status : undefined;
   const shiftId = typeof body.shiftId === "string" ? body.shiftId.trim() : "";
   const editFields = {
     stakeDistrict: typeof body.stakeDistrict === "string" ? body.stakeDistrict.trim() : "",
@@ -52,19 +53,16 @@ export async function PATCH(request: Request) {
     phone: typeof body.phone === "string" ? body.phone.trim() : "",
     organization: typeof body.organization === "string" ? body.organization.trim() : "",
   };
-  if (!reference || (!status && (!shiftId || Object.values(editFields).every((value) => !value)))) {
+  const hasEditFields = Boolean(shiftId && Object.values(editFields).every(Boolean));
+  if (!reference || (!status && !hasEditFields) || (status && !hasEditFields && body.shiftId !== undefined)) {
     return Response.json({ error: "A reference and an update are required." }, { status: 400 });
   }
 
   try {
-    if (status) {
-      await updateBookingStatus(reference, status);
-    } else {
-      if (!shiftId || !editFields.stakeDistrict || !editFields.fullName || !editFields.phone || !editFields.organization) {
-        return Response.json({ error: "Complete all required booking fields." }, { status: 400 });
-      }
-      await editBookingRequest(reference, { ...editFields, shiftId });
+    if (hasEditFields) {
+      await editBookingRequest(reference, { ...editFields, shiftId, targetStatus: status });
     }
+    if (status) await updateBookingStatus(reference, status);
     return Response.json({ updated: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";

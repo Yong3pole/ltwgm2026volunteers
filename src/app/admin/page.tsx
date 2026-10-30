@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Menu, X } from "lucide-react";
 import Swal from "sweetalert2";
+import { getStakeSchedule, isShiftAllowedForStake } from "@/lib/stake-schedule";
 
 type Status = "pending" | "confirmed" | "rejected" | "cancelled" | "waitlisted";
 type RequestRow = {
@@ -205,7 +206,7 @@ export default function AdminPage() {
       if (!response.ok) throw new Error(data.error ?? "Unable to promote volunteer.");
       await loadRequests();
       Swal.close();
-      await Swal.fire({ icon: "success", title: "Volunteer promoted", text: "The waitlisted volunteer is now a booking request.", confirmButtonColor: "#d50032" });
+      await Swal.fire({ icon: "success", title: "Volunteer moved to pending", text: "The volunteer is now pending coordinator confirmation.", confirmButtonColor: "#d50032" });
     } catch (promotionError) {
       Swal.close();
       await Swal.fire({
@@ -301,6 +302,7 @@ export default function AdminPage() {
   const lastVisibleRow = Math.min(visiblePage * pageSize, filtered.length);
 
   const scheduleDates = useMemo(() => [...new Set(schedule.map((row) => row.date))].sort(), [schedule]);
+  const editingGuidance = editing ? getStakeSchedule(editing.stakeDistrict) : undefined;
   const counts = { pending: requests.filter((r) => r.status === "pending").length, confirmed: requests.filter((r) => r.status === "confirmed").length };
   const monthLabel = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(calendarMonth);
 
@@ -363,6 +365,7 @@ export default function AdminPage() {
     {editing && <div className="modal-backdrop" role="presentation"><form className="edit-modal" onSubmit={async (event) => {
       event.preventDefault(); const data = new FormData(event.currentTarget); const saved = await updateRequest({
         reference: editing.reference,
+        status: String(data.get("status")),
         shiftId: String(data.get("shiftId")),
         stakeDistrict: String(data.get("stakeDistrict")),
         fullName: String(data.get("fullName")),
@@ -370,13 +373,23 @@ export default function AdminPage() {
         organization: String(data.get("organization")),
       }); if (saved) setEditing(null);
     }}><div className="edit-modal__header"><h2>Edit booking</h2><button type="button" onClick={() => setEditing(null)} aria-label="Close edit form">×</button></div><p className="reference">{editing.reference} · current: {formatDate(editing.date)} · {editing.shiftLabel}</p><label>
-        Booking date
-        <select name="shiftId" defaultValue={editing.shiftId} required>
-          {scheduleDates.map((date) => (
-            <optgroup key={date} label={formatDate(date)}>
-              {schedule
-                .filter((row) => row.date === date)
-                .map((row) => (
+      Status
+      <select name="status" defaultValue={editing.status} required>
+        <option value="pending">Pending</option>
+        <option value="confirmed">Confirmed</option>
+        <option value="rejected">Denied</option>
+        <option value="waitlisted">Waitlisted</option>
+      </select>
+    </label>
+    <label>
+      Booking date
+      <select name="shiftId" defaultValue={editing.shiftId} required>
+        {scheduleDates.map((date) => (
+          <optgroup key={date} label={formatDate(date)}>
+            {schedule
+              .filter((row) => row.date === date &&
+                (!editingGuidance || isShiftAllowedForStake(editingGuidance, row.date, row.startTime)))
+              .map((row) => (
                   <option key={row.shiftId} value={row.shiftId}>
                     {row.label} · {formatTime12(row.startTime)}–
                     {formatTime12(row.endTime)}
@@ -393,6 +406,9 @@ export default function AdminPage() {
           name="stakeDistrict"
           defaultValue={editing.stakeDistrict}
           required
+          onChange={(event) => setEditing((current) => current
+            ? { ...current, stakeDistrict: event.target.value }
+            : current)}
         >
           {["Buhangin", "Davao", "Davao West", "Panabo", "Tagum", "Digos"].map(
             (name) => (

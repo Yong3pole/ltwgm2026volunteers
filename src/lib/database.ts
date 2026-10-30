@@ -226,7 +226,7 @@ export async function getShiftAvailability() {
     FROM shifts s
     LEFT JOIN booking_requests b
       ON b.shift_id = s.id
-      AND b.status IN ('pending', 'confirmed')
+      AND b.status = 'confirmed'
     WHERE s.active = TRUE
     GROUP BY s.id, s.service_date, s.label, s.start_time, s.end_time, s.capacity
     ORDER BY s.service_date, s.start_time
@@ -404,7 +404,7 @@ export async function createBookingRequest(input: BookingInput) {
 
       const [reservedRows] = await connection.execute<RowDataPacket[]>(
         `SELECT COUNT(*) AS count FROM booking_requests
-         WHERE shift_id = ? AND status IN ('pending', 'confirmed')`,
+         WHERE shift_id = ? AND status = 'confirmed'`,
         [shiftId],
       );
         const id = crypto.randomUUID();
@@ -477,18 +477,62 @@ export async function getAdminOverview() {
 
 export async function updateBookingStatus(
   reference: string,
-  status: "confirmed" | "rejected",
+  status: "pending" | "confirmed" | "rejected" | "waitlisted",
 ) {
   await initializeDatabase();
-  const [result] = await getPool().execute(
-    `UPDATE booking_requests
-     SET status = ?
-     WHERE reference = ? AND status = 'pending'`,
-    [status, reference],
-  );
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [bookingRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT id, reference, group_reference AS groupReference, shift_id AS shiftId,
+              stake_district AS stakeDistrict, full_name AS fullName, phone, organization, status
+       FROM booking_requests
+       WHERE reference = ? AND status IN ('pending', 'confirmed', 'rejected')
+       FOR UPDATE`,
+      [reference],
+    );
+    const booking = bookingRows[0];
+    if (!booking) throw new Error("That booking request was not found.");
 
-  if (!("affectedRows" in result) || result.affectedRows !== 1) {
-    throw new Error("That pending request was not found.");
+    if (status === "confirmed") {
+      const [shiftRows] = await connection.execute<ShiftRow[]>(
+        "SELECT capacity FROM shifts WHERE id = ? AND active = TRUE FOR UPDATE",
+        [booking.shiftId],
+      );
+      if (!shiftRows[0]) throw new Error("That shift is no longer available.");
+      const [confirmedRows] = await connection.execute<RowDataPacket[]>(
+        `SELECT COUNT(*) AS count FROM booking_requests
+         WHERE shift_id = ? AND status = 'confirmed' AND id <> ?`,
+        [booking.shiftId, booking.id],
+      );
+      if (Number(confirmedRows[0].count) >= shiftRows[0].capacity) {
+        throw new Error("That shift is already full.");
+      }
+    }
+
+    if (status === "waitlisted") {
+      const waitlistId = crypto.randomUUID();
+      const waitlistReference = `WAIT-${waitlistId.slice(0, 8).toUpperCase()}`;
+      await connection.execute(
+        `INSERT INTO waitlist_entries
+          (id, reference, group_reference, shift_id, stake_district, full_name, phone, organization)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [waitlistId, waitlistReference, booking.groupReference, booking.shiftId,
+          booking.stakeDistrict, booking.fullName, booking.phone, booking.organization],
+      );
+      await connection.execute("DELETE FROM booking_requests WHERE id = ?", [booking.id]);
+    } else {
+      await connection.execute(
+        "UPDATE booking_requests SET status = ? WHERE id = ?",
+        [status, booking.id],
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
 }
 
@@ -500,6 +544,7 @@ export async function editBookingRequest(
     fullName: string;
     phone: string;
     organization: string;
+    targetStatus?: "pending" | "confirmed" | "rejected" | "waitlisted";
   },
 ) {
   await initializeDatabase();
@@ -516,17 +561,25 @@ export async function editBookingRequest(
     if (!booking) throw new Error("That booking was not found.");
 
     const [shiftRows] = await connection.execute<ShiftRow[]>(
-      "SELECT capacity FROM shifts WHERE id = ? AND active = TRUE FOR UPDATE",
+      `SELECT capacity,
+              DATE_FORMAT(service_date, '%Y-%m-%d') AS serviceDate,
+              TIME_FORMAT(start_time, '%H:%i') AS startTime
+       FROM shifts WHERE id = ? AND active = TRUE FOR UPDATE`,
       [input.shiftId],
     );
     if (!shiftRows[0]) throw new Error("That shift is not available.");
+    const schedule = getStakeSchedule(input.stakeDistrict);
+    if (!schedule || !isShiftAllowedForStake(schedule, shiftRows[0].serviceDate, shiftRows[0].startTime)) {
+      throw new Error("The selected shift does not match the recommended stake schedule.");
+    }
 
     const [reservedRows] = await connection.execute<RowDataPacket[]>(
       `SELECT COUNT(*) AS count FROM booking_requests
-       WHERE shift_id = ? AND status IN ('pending', 'confirmed') AND id <> ?`,
+       WHERE shift_id = ? AND status = 'confirmed' AND id <> ?`,
       [input.shiftId, booking.id],
     );
-    if (Number(reservedRows[0].count) >= shiftRows[0].capacity) {
+    const statusAfterEdit = input.targetStatus ?? booking.status;
+    if (statusAfterEdit === "confirmed" && Number(reservedRows[0].count) >= shiftRows[0].capacity) {
       throw new Error("That shift is already full.");
     }
 
@@ -608,22 +661,13 @@ export async function promoteWaitlistEntry(reference: string) {
     if (!shiftRows[0]) throw new Error("That shift is no longer available.");
     const [reservedRows] = await connection.execute<RowDataPacket[]>(
       `SELECT COUNT(*) AS count FROM booking_requests
-       WHERE shift_id = ? AND status IN ('pending', 'confirmed')`,
+       WHERE shift_id = ? AND status = 'confirmed'`,
       [waitlist.shift_id],
     );
     const reservedCount = Number(reservedRows[0].count);
     if (reservedCount >= shiftRows[0].capacity) {
-      const [statusRows] = await connection.execute<RowDataPacket[]>(
-        `SELECT status, COUNT(*) AS count FROM booking_requests
-         WHERE shift_id = ? AND status IN ('pending', 'confirmed')
-         GROUP BY status`,
-        [waitlist.shift_id],
-      );
-      const counts = new Map(statusRows.map((row) => [row.status as string, Number(row.count)]));
-      const confirmedCount = counts.get("confirmed") ?? 0;
-      const pendingCount = counts.get("pending") ?? 0;
       throw new Error(
-        `That shift is still full. It already has ${confirmedCount} confirmed and ${pendingCount} pending request${reservedCount === 1 ? "" : "s"}.`,
+        `That shift is still full. It already has ${reservedCount} confirmed booking${reservedCount === 1 ? "" : "s"}.`,
       );
     }
 
@@ -631,8 +675,8 @@ export async function promoteWaitlistEntry(reference: string) {
     const bookingReference = `LTW-${id.slice(0, 8).toUpperCase()}`;
     await connection.execute(
       `INSERT INTO booking_requests
-        (id, reference, group_reference, shift_id, stake_district, full_name, phone, organization)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, reference, group_reference, shift_id, stake_district, full_name, phone, organization, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [id, bookingReference, waitlist.group_reference, waitlist.shift_id, waitlist.stake_district,
         waitlist.full_name, waitlist.phone, waitlist.organization],
     );
